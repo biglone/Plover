@@ -40,7 +40,7 @@ an annotation-capable placeholder until a VNC/WebSocket gateway is connected.
 - Replace `DeterministicPlanner` with a vision-model adapter that returns the
   XML plan schema from `plover_core.prompts`.
 - Route executor `failure_type` responses to
-  `POST /api/runs/{run_id}/replan` to surface a system-driven IR proposal.
+  `POST /api/runs/{run_id}/failures` to surface a system-driven IR proposal.
 - Provide a VNC gateway that serves 1024 x 768 screenshots to the frontend and
   forwards user annotation metadata.
 - Replace `PlannerRepository` with durable storage before multi-process

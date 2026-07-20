@@ -31,6 +31,11 @@ class ReplanRequest(BaseModel):
     rationale: str | None = Field(default=None, max_length=2000)
 
 
+class FailureRequest(BaseModel):
+    failure_type: str = Field(min_length=1, max_length=120)
+    rationale: str | None = Field(default=None, max_length=2000)
+
+
 class StatusRequest(BaseModel):
     status: str = Field(pattern="^(running|paused|failed)$")
     reason: str | None = Field(default=None, max_length=1000)
@@ -112,6 +117,26 @@ def create_app(
         repository.save(run)
         return proposal.as_dict()
 
+    @app.post("/api/runs/{run_id}/failures", status_code=201)
+    def propose_system_recovery(run_id: str, request: FailureRequest) -> dict[str, Any]:
+        run = get_run(run_id)
+        proposal = planner.propose_repair(
+            run.active_version(),
+            guidance=None,
+            annotation=None,
+            failure_type=request.failure_type,
+            rationale=request.rationale,
+        )
+        run.proposals[proposal.id] = proposal
+        run.status = "paused"
+        run.add_event(
+            "system_recovery_proposed",
+            proposal_id=proposal.id,
+            failure_type=request.failure_type,
+        )
+        repository.save(run)
+        return proposal.as_dict()
+
     @app.post("/api/runs/{run_id}/proposals/{proposal_id}/approve")
     def approve_replan(run_id: str, proposal_id: str) -> dict[str, Any]:
         run = get_run(run_id)
@@ -174,4 +199,3 @@ def create_app(
 
 
 app = create_app()
-

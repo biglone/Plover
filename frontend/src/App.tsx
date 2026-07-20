@@ -70,8 +70,8 @@ function AnnotationLayer({
       return { x: 0, y: 0 };
     }
     return {
-      x: Math.min(Math.max(event.clientX - rect.left, 0), rect.width),
-      y: Math.min(Math.max(event.clientY - rect.top, 0), rect.height)
+      x: Math.min(Math.max(((event.clientX - rect.left) / rect.width) * 1024, 0), 1024),
+      y: Math.min(Math.max(((event.clientY - rect.top) / rect.height) * 768, 0), 768)
     };
   }
 
@@ -116,10 +116,10 @@ function AnnotationLayer({
         <div
           className="absolute border-[3px] border-clay bg-clay/10"
           style={{
-            left: box.x,
-            top: box.y,
-            width: box.width,
-            height: box.height
+            left: `${(box.x / 1024) * 100}%`,
+            top: `${(box.y / 768) * 100}%`,
+            width: `${(box.width / 1024) * 100}%`,
+            height: `${(box.height / 768) * 100}%`
           }}
         >
           <div className="absolute -top-8 left-0 rounded-full bg-clay px-3 py-1 text-xs font-semibold text-white">

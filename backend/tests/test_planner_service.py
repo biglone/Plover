@@ -76,6 +76,19 @@ class PlannerServiceTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 422)
 
+    def test_executor_failure_creates_system_driven_recovery_proposal(self) -> None:
+        run = self.client.post("/api/runs", json={"task": "Navigate the dashboard"}).json()
+
+        response = self.client.post(
+            f"/api/runs/{run['id']}/failures",
+            json={"failure_type": "REPEAT_CLICK_MENU"},
+        )
+
+        self.assertEqual(response.status_code, 201)
+        proposal = response.json()
+        self.assertEqual(proposal["version"]["cause"], "system_driven_ir")
+        self.assertIn("REPEAT_CLICK_MENU", proposal["rationale"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -15,6 +15,7 @@ from plover_core.xml_plan import PlanParseError
 from planner_service.executor_gateway import ExecutorGateway, GrpcExecutorGateway, LocalExecutorGateway
 from planner_service.model_planner import create_planner
 from planner_service.store import PlannerRepository, RunRecord, SqlitePlannerRepository, create_repository, utc_now
+from planner_service.vnc_gateway import VncTarget, VncTargetError, proxy_vnc
 
 
 class CreateRunRequest(BaseModel):
@@ -155,6 +156,22 @@ def create_app(
                 await asyncio.sleep(1)
         except WebSocketDisconnect:
             return
+
+    @app.websocket("/api/runs/{run_id}/vnc")
+    async def vnc_view(websocket: WebSocket, run_id: str) -> None:
+        if repository.get(run_id) is None:
+            await websocket.close(code=1008, reason="run not found")
+            return
+        target_value = os.getenv("PLOVER_VNC_TARGET")
+        if not target_value:
+            await websocket.close(code=1013, reason="PLOVER_VNC_TARGET is not configured")
+            return
+        try:
+            target = VncTarget.parse(target_value)
+            await proxy_vnc(websocket, target)
+        except (VncTargetError, ConnectionError, OSError) as error:
+            if websocket.client_state.name != "DISCONNECTED":
+                await websocket.close(code=1013, reason=str(error))
 
     @app.post("/api/runs/{run_id}/replan", status_code=201)
     def propose_replan(run_id: str, request: ReplanRequest) -> dict[str, Any]:

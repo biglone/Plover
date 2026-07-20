@@ -44,3 +44,6 @@ proposals, screenshots, and timeline events across service restarts.
 Set `PLOVER_LLM_ENDPOINT` to use the XML-validated vision-model planner;
 `PLOVER_LLM_MODEL` and `PLOVER_LLM_API_KEY` configure the model and optional
 authentication. Without it, the deterministic local planner is used.
+
+Set `PLOVER_VNC_TARGET=host:port` to expose a raw VNC WebSocket bridge at
+`/api/runs/{run_id}/vnc`.

@@ -16,6 +16,8 @@ This repository contains a runnable first vertical slice of the design in
 - Safety stops for sensitive data and subjective ambiguity before execution.
 - WebSocket Live View stream at `/api/runs/{run_id}/live` with 1024 x 768
   screenshot frames consumed directly by the React interface.
+- Raw VNC WebSocket bridge at `/api/runs/{run_id}/vnc`, configured with
+  `PLOVER_VNC_TARGET=host:port`.
 - Executor gRPC contract for pointer, keyboard, scroll, wait, and observation
   primitives.
 - Conservative system-driven non-progress detection using repeated canonical
@@ -89,6 +91,8 @@ may fail even though the gRPC service is healthy.
   `POST /api/runs/{run_id}/failures` to surface a system-driven IR proposal.
 - Replace the local Executor screenshot source behind the WebSocket with a VNC
   gateway that serves 1024 x 768 frames and forwards user annotation metadata.
+- Connect a browser VNC client such as noVNC to `/api/runs/{run_id}/vnc`; the
+  Planner intentionally forwards VNC bytes without interpreting the protocol.
 - Move SQLite to Postgres or another shared database for multi-process
   deployment.
 - Add an explicit user-guidance flow to resume a safety-paused run after the

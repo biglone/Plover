@@ -7,6 +7,7 @@ import {
   manualEditPending,
   refreshLiveView,
   resumeRun,
+  rejectProposal,
   replanWithAnnotation,
   replanWithGuidance
 } from "./api";
@@ -200,11 +201,14 @@ function AnnotationLayer({
 
 function ProposalCard({
   proposal,
-  onApprove
+  onApprove,
+  onReject
 }: {
   proposal: Proposal;
-  onApprove: (proposal: Proposal) => void;
+  onApprove?: (proposal: Proposal) => void;
+  onReject?: (proposal: Proposal) => void;
 }) {
+  const canAct = proposal.status === "pending" && onApprove && onReject;
   return (
     <section className="rounded-[28px] border border-clay/25 bg-[#fff8f3] p-5 shadow-panel">
       <div className="flex items-start justify-between gap-4">
@@ -213,12 +217,9 @@ function ProposalCard({
           <h3 className="mt-2 font-display text-lg text-ink">{proposal.summary}</h3>
           <p className="mt-2 text-sm leading-6 text-ink/70">{proposal.rationale}</p>
         </div>
-        <button
-          className="rounded-full bg-clay px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#b95f36]"
-          onClick={() => onApprove(proposal)}
-        >
-          Approve
-        </button>
+        <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-moss shadow-sm">
+          {proposal.status}
+        </span>
       </div>
       <div className="mt-4 grid gap-4 md:grid-cols-2">
         <div className="rounded-2xl border border-clay/15 bg-white/75 p-4">
@@ -240,6 +241,24 @@ function ProposalCard({
           </div>
         </div>
       </div>
+      {canAct ? (
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+          <button
+            className="rounded-full bg-clay px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#b95f36]"
+            onClick={() => onApprove(proposal)}
+            type="button"
+          >
+            Approve
+          </button>
+          <button
+            className="rounded-full border border-clay/20 bg-white px-4 py-3 text-sm font-semibold text-clay transition hover:bg-[#fff1e7]"
+            onClick={() => onReject(proposal)}
+            type="button"
+          >
+            Discard
+          </button>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -250,7 +269,7 @@ export default function App() {
   const [manualEditText, setManualEditText] = useState("");
   const [run, setRun] = useState<RunState | null>(null);
   const [selectedBox, setSelectedBox] = useState<Box | null>(null);
-  const [pendingProposalId, setPendingProposalId] = useState<string | null>(null);
+  const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null);
   const [liveImageUrl, setLiveImageUrl] = useState<string | null>(null);
   const [liveConnected, setLiveConnected] = useState(false);
   const [liveMode, setLiveMode] = useState<"remote" | "annotate">("remote");
@@ -260,9 +279,23 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const activeProposal = useMemo(
-    () => run?.proposals.find((proposal) => proposal.status === "pending") ?? null,
-    [run]
+  const proposals = useMemo(() => run?.proposals ?? [], [run]);
+  const pendingProposals = useMemo(
+    () => proposals.filter((proposal) => proposal.status === "pending"),
+    [proposals]
+  );
+  const archivedProposals = useMemo(
+    () => proposals.filter((proposal) => proposal.status !== "pending"),
+    [proposals]
+  );
+  const hasPendingProposals = pendingProposals.length > 0;
+  const selectedProposal = useMemo(
+    () =>
+      proposals.find((proposal) => proposal.id === selectedProposalId) ??
+      pendingProposals[0] ??
+      proposals[0] ??
+      null,
+    [pendingProposals, proposals, selectedProposalId]
   );
   const manualEditSteps = useMemo(
     () => manualEditText.split("\n").map((line) => line.trim()).filter(Boolean),
@@ -273,7 +306,7 @@ export default function App() {
     if (!run) {
       return "Create a run to start the execution stream.";
     }
-    if (activeProposal) {
+    if (hasPendingProposals) {
       return "Waiting for proposal approval before execution can continue.";
     }
     if (run.active_safety_stop?.reason) {
@@ -284,7 +317,7 @@ export default function App() {
       return describeEvent(latest);
     }
     return "The plan is ready for its first action.";
-  }, [activeProposal, run]);
+  }, [hasPendingProposals, run]);
 
   useEffect(() => {
     if (!run) {
@@ -292,6 +325,7 @@ export default function App() {
       setLiveConnected(false);
       setLiveMode("remote");
       setManualEditText("");
+      setSelectedProposalId(null);
       setResumeNote("");
       setShowLogs(false);
       return;
@@ -347,6 +381,17 @@ export default function App() {
     setManualEditText(run.active_version.plan.pending.map((step) => step.instruction).join("\n"));
   }, [run?.active_version_id]);
 
+  useEffect(() => {
+    if (!run) {
+      return;
+    }
+    if (selectedProposalId && proposals.some((proposal) => proposal.id === selectedProposalId)) {
+      return;
+    }
+    const nextProposal = pendingProposals[0] ?? proposals[0] ?? null;
+    setSelectedProposalId(nextProposal?.id ?? null);
+  }, [proposals, pendingProposals, run, selectedProposalId]);
+
   async function handleCreateRun(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
@@ -368,7 +413,7 @@ export default function App() {
     setError(null);
     try {
       const proposal = await replanWithGuidance(run.id, guidance.trim());
-      setPendingProposalId(proposal.id);
+      setSelectedProposalId(proposal.id);
       setRun(await getRun(run.id));
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Failed to replan");
@@ -390,7 +435,7 @@ export default function App() {
     setError(null);
     try {
       const proposal = await replanWithAnnotation(run.id, selectedBox, screenshot);
-      setPendingProposalId(proposal.id);
+      setSelectedProposalId(proposal.id);
       setRun(await getRun(run.id));
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Failed to submit annotation");
@@ -407,7 +452,6 @@ export default function App() {
     setError(null);
     try {
       setRun(await approveProposal(run.id, proposal.id));
-      setPendingProposalId(null);
       setSelectedBox(null);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Failed to approve proposal");
@@ -424,7 +468,7 @@ export default function App() {
     setError(null);
     try {
       const proposal = await manualEditPending(run.id, manualEditSteps);
-      setPendingProposalId(proposal.id);
+      setSelectedProposalId(proposal.id);
       setRun(await getRun(run.id));
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Failed to create manual patch");
@@ -444,10 +488,25 @@ export default function App() {
     setError(null);
     try {
       const proposal = await resumeRun(run.id, resumeNote.trim(), handledOutside);
-      setPendingProposalId(proposal.id);
+      setSelectedProposalId(proposal.id);
       setRun(await getRun(run.id));
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Failed to resume run");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleReject(proposal: Proposal) {
+    if (!run) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      setRun(await rejectProposal(run.id, proposal.id));
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Failed to discard proposal");
     } finally {
       setBusy(false);
     }
@@ -564,19 +623,73 @@ export default function App() {
                   <StepList steps={run.active_version.plan.pending} title="Pending" />
                 </div>
 
-                {activeProposal ? (
-                  <ProposalCard proposal={activeProposal} onApprove={handleApprove} />
-                ) : (
-                  <section className="rounded-[28px] border border-moss/10 bg-white/72 p-5 shadow-panel">
-                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-moss">
-                      Proposal queue
-                    </p>
+                <section className="rounded-[28px] border border-moss/10 bg-white/72 p-5 shadow-panel">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-moss">
+                        Proposal queue
+                      </p>
+                      <h3 className="mt-2 font-display text-xl text-ink">Browse, approve, or discard branches</h3>
+                    </div>
+                    <div className="rounded-full bg-mist px-3 py-1 text-xs font-medium uppercase tracking-[0.2em] text-moss">
+                      {pendingProposals.length} pending / {archivedProposals.length} archived
+                    </div>
+                  </div>
+                  {proposals.length ? (
+                    <div className="mt-4 grid gap-4 xl:grid-cols-[0.92fr_1.08fr]">
+                      <div className="space-y-3">
+                        {proposals.map((proposal) => (
+                          <button
+                            key={proposal.id}
+                            className={`w-full rounded-[24px] border p-4 text-left transition ${
+                              selectedProposal?.id === proposal.id
+                                ? "border-clay/40 bg-[#fff8f3] shadow-sm"
+                                : "border-moss/10 bg-canvas/75 hover:bg-white"
+                            }`}
+                            onClick={() => setSelectedProposalId(proposal.id)}
+                            type="button"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="text-sm font-semibold text-ink">{proposal.summary}</p>
+                                <p className="mt-1 text-xs uppercase tracking-[0.16em] text-ink/45">
+                                  {formatCause(proposal.version.cause)}
+                                </p>
+                              </div>
+                              <span className="rounded-full bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-moss shadow-sm">
+                                {proposal.status}
+                              </span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                      {selectedProposal ? (
+                        <ProposalCard
+                          proposal={selectedProposal}
+                          onApprove={selectedProposal.status === "pending" ? handleApprove : undefined}
+                          onReject={selectedProposal.status === "pending" ? handleReject : undefined}
+                        />
+                      ) : null}
+                    </div>
+                  ) : (
                     <p className="mt-3 text-sm leading-6 text-ink/65">
-                      No pending proposal. Use the guidance box or draw an annotation to trigger a
+                      No proposal yet. Use the guidance box or draw an annotation to trigger a
                       localized replan.
                     </p>
-                  </section>
-                )}
+                  )}
+                  {archivedProposals.length ? (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {archivedProposals.map((proposal) => (
+                        <span
+                          key={proposal.id}
+                          className="rounded-full bg-white px-3 py-1 text-xs text-ink/60 shadow-sm"
+                        >
+                          {proposal.status}: {proposal.summary}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                </section>
               </>
             ) : null}
           </section>
@@ -676,7 +789,7 @@ export default function App() {
                   </div>
                 ) : null}
               </div>
-              {run?.active_safety_stop && !activeProposal ? (
+              {run?.active_safety_stop && !hasPendingProposals ? (
                 <div className="mb-4 rounded-[26px] border border-amber-200 bg-amber-50 p-4">
                   <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-700">
                     Safety pause
@@ -817,9 +930,9 @@ export default function App() {
                   <p className="text-xs font-semibold uppercase tracking-[0.2em] text-clay">Run timeline</p>
                   <h2 className="mt-2 font-display text-2xl text-ink">Branching provenance</h2>
                 </div>
-                {pendingProposalId ? (
+                {selectedProposalId ? (
                   <span className="rounded-full bg-clay/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-clay">
-                    Pending {pendingProposalId}
+                    Focus {selectedProposalId}
                   </span>
                 ) : null}
               </div>

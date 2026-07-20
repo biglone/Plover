@@ -101,6 +101,14 @@ export async function approveProposal(runId: string, proposalId: string): Promis
   );
 }
 
+export async function rejectProposal(runId: string, proposalId: string): Promise<RunState> {
+  return parse<RunState>(
+    await fetch(`/api/runs/${runId}/proposals/${proposalId}/reject`, {
+      method: "POST"
+    })
+  );
+}
+
 export async function completeStep(runId: string): Promise<RunState> {
   return parse<RunState>(
     await fetch(`/api/runs/${runId}/steps/complete`, {

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Any
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
 from plover_core.models import Annotation, PlanVersion, Proposal
@@ -118,6 +119,42 @@ def create_app(
         run.add_event("live_view_refreshed")
         repository.save(run)
         return run.as_dict()
+
+    @app.websocket("/api/runs/{run_id}/live")
+    async def live_view(websocket: WebSocket, run_id: str) -> None:
+        run = repository.get(run_id)
+        if run is None:
+            await websocket.close(code=1008, reason="run not found")
+            return
+        await websocket.accept()
+        try:
+            while True:
+                run = repository.get(run_id)
+                if run is None:
+                    await websocket.close(code=1008, reason="run not found")
+                    return
+                observation = await asyncio.to_thread(executor.observe, run.id)
+                run.set_live_view(
+                    observation.screenshot_png,
+                    width=observation.width,
+                    height=observation.height,
+                )
+                repository.save(run)
+                await websocket.send_json(
+                    {
+                        "type": "frame",
+                        "run_id": run.id,
+                        "image_url": run.live_view_data_url(),
+                        "width": run.live_view_width,
+                        "height": run.live_view_height,
+                        "status": run.status,
+                        "latest_event": run.events[-1] if run.events else None,
+                        "created_at": utc_now(),
+                    }
+                )
+                await asyncio.sleep(1)
+        except WebSocketDisconnect:
+            return
 
     @app.post("/api/runs/{run_id}/replan", status_code=201)
     def propose_replan(run_id: str, request: ReplanRequest) -> dict[str, Any]:

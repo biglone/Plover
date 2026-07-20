@@ -14,6 +14,8 @@ This repository contains a runnable first vertical slice of the design in
 - SQLite persistence for plans, proposals, timeline events, screenshots, and
   the latest Live View frame.
 - Safety stops for sensitive data and subjective ambiguity before execution.
+- WebSocket Live View stream at `/api/runs/{run_id}/live` with 1024 x 768
+  screenshot frames consumed directly by the React interface.
 - Executor gRPC contract for pointer, keyboard, scroll, wait, and observation
   primitives.
 - Conservative system-driven non-progress detection using repeated canonical
@@ -85,8 +87,8 @@ may fail even though the gRPC service is healthy.
   OpenAI-compatible vision-model adapter if required by the deployment.
 - Route executor `failure_type` responses to
   `POST /api/runs/{run_id}/failures` to surface a system-driven IR proposal.
-- Provide a VNC gateway that serves 1024 x 768 screenshots to the frontend and
-  forwards user annotation metadata.
+- Replace the local Executor screenshot source behind the WebSocket with a VNC
+  gateway that serves 1024 x 768 frames and forwards user annotation metadata.
 - Move SQLite to Postgres or another shared database for multi-process
   deployment.
 - Add an explicit user-guidance flow to resume a safety-paused run after the

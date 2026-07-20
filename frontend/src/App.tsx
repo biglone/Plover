@@ -194,6 +194,8 @@ export default function App() {
   const [run, setRun] = useState<RunState | null>(null);
   const [selectedBox, setSelectedBox] = useState<Box | null>(null);
   const [pendingProposalId, setPendingProposalId] = useState<string | null>(null);
+  const [liveImageUrl, setLiveImageUrl] = useState<string | null>(null);
+  const [liveConnected, setLiveConnected] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -204,6 +206,8 @@ export default function App() {
 
   useEffect(() => {
     if (!run) {
+      setLiveImageUrl(null);
+      setLiveConnected(false);
       return;
     }
     const timer = window.setInterval(async () => {
@@ -215,6 +219,35 @@ export default function App() {
       }
     }, 2500);
     return () => window.clearInterval(timer);
+  }, [run?.id]);
+
+  useEffect(() => {
+    if (!run) {
+      return;
+    }
+    setLiveImageUrl(run.live_view.image_url);
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const socket = new WebSocket(`${protocol}//${window.location.host}/api/runs/${run.id}/live`);
+    socket.onopen = () => setLiveConnected(true);
+    socket.onmessage = (event) => {
+      try {
+        const frame = JSON.parse(event.data) as {
+          type?: string;
+          image_url?: string | null;
+        };
+        if (frame.type === "frame") {
+          setLiveImageUrl(frame.image_url ?? null);
+        }
+      } catch (socketError) {
+        console.error(socketError);
+      }
+    };
+    socket.onerror = () => setLiveConnected(false);
+    socket.onclose = () => setLiveConnected(false);
+    return () => {
+      socket.close();
+      setLiveConnected(false);
+    };
   }, [run?.id]);
 
   async function handleCreateRun(event: FormEvent) {
@@ -416,14 +449,17 @@ export default function App() {
                   <p className="text-xs font-semibold uppercase tracking-[0.2em] text-clay">Execution monitor</p>
                   <h2 className="mt-2 font-display text-2xl text-ink">Live view and grounded repair</h2>
                 </div>
-                <span className="rounded-full bg-mist px-3 py-1 text-xs font-medium uppercase tracking-[0.2em] text-moss">
-                  {run?.active_version.cause ? formatCause(run.active_version.cause) : "no run"}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className={`h-2.5 w-2.5 rounded-full ${liveConnected ? "bg-moss" : "bg-ink/25"}`} />
+                  <span className="rounded-full bg-mist px-3 py-1 text-xs font-medium uppercase tracking-[0.2em] text-moss">
+                    {liveConnected ? "streaming" : "offline"}
+                  </span>
+                </div>
               </div>
               <AnnotationLayer
                 box={selectedBox}
                 onChange={setSelectedBox}
-                imageUrl={run?.live_view.image_url ?? null}
+                imageUrl={liveImageUrl ?? run?.live_view.image_url ?? null}
               />
               <div className="mt-4 flex flex-col gap-3 md:flex-row">
                 <button

@@ -115,6 +115,17 @@ class PlannerServiceTests(unittest.TestCase):
         self.assertEqual(observed["live_view"]["width"], 1024)
         self.assertEqual(observed["live_view"]["height"], 768)
 
+    def test_live_websocket_streams_a_frame(self) -> None:
+        run = self.client.post("/api/runs", json={"task": "Open a report"}).json()
+
+        with self.client.websocket_connect(f"/api/runs/{run['id']}/live") as websocket:
+            frame = websocket.receive_json()
+
+        self.assertEqual(frame["type"], "frame")
+        self.assertEqual(frame["run_id"], run["id"])
+        self.assertEqual(frame["width"], 1024)
+        self.assertTrue(frame["image_url"].startswith("data:image/png;base64,"))
+
     def test_remote_grpc_gateway_executes_against_executor_service(self) -> None:
         from executor_service import executor_pb2_grpc
         from executor_service.driver import MockEnvironmentDriver

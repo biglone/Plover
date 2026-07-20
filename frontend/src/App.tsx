@@ -5,6 +5,7 @@ import {
   executeNext,
   getRun,
   manualEditPending,
+  reportFailure,
   refreshLiveView,
   resumeRun,
   rejectProposal,
@@ -53,6 +54,9 @@ function describeEvent(event: RunEvent): string {
   }
   if (event.type === "safety_resume_proposed") {
     return "Prepared a localized continuation proposal from the safety pause.";
+  }
+  if (event.type === "system_recovery_proposed" && typeof event.failure_type === "string") {
+    return `Prepared a recovery proposal after detecting ${event.failure_type}.`;
   }
   if (event.type === "safety_stop" && typeof event.reason === "string" && event.reason) {
     return event.reason;
@@ -291,6 +295,10 @@ export default function App() {
   const [liveMode, setLiveMode] = useState<"remote" | "annotate">("remote");
   const [resumeNote, setResumeNote] = useState("");
   const [statusNote, setStatusNote] = useState("");
+  const [failureType, setFailureType] = useState("REPEAT_CLICK_MENU");
+  const [failureRationale, setFailureRationale] = useState(
+    "Repeated attempts no longer change the visible screen, so a different tactic is needed."
+  );
   const [showLogs, setShowLogs] = useState(false);
   const [vncState, setVncState] = useState<VncConnectionState>("disconnected");
   const [busy, setBusy] = useState(false);
@@ -366,6 +374,7 @@ export default function App() {
     run?.status !== "completed" &&
     !hasPendingProposals &&
     Boolean(run?.active_version.plan.pending.length);
+  const canReportFailure = Boolean(run) && !busy && Boolean(failureType.trim());
 
   useEffect(() => {
     if (!run) {
@@ -376,6 +385,8 @@ export default function App() {
       setSelectedProposalId(null);
       setResumeNote("");
       setStatusNote("");
+      setFailureType("REPEAT_CLICK_MENU");
+      setFailureRationale("Repeated attempts no longer change the visible screen, so a different tactic is needed.");
       setShowLogs(false);
       return;
     }
@@ -573,6 +584,23 @@ export default function App() {
       setStatusNote("");
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Failed to update run status");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleReportFailure() {
+    if (!run || !failureType.trim()) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const proposal = await reportFailure(run.id, failureType.trim(), failureRationale.trim());
+      setSelectedProposalId(proposal.id);
+      setRun(await getRun(run.id));
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Failed to create recovery proposal");
     } finally {
       setBusy(false);
     }
@@ -901,6 +929,46 @@ export default function App() {
                       type="button"
                     >
                       Mark failed
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              {run ? (
+                <div className="mb-4 rounded-[26px] border border-clay/15 bg-[#fff7f1] p-4">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-clay">Failure recovery</p>
+                      <p className="mt-2 text-sm leading-6 text-ink/68">
+                        Surface a system-driven recovery proposal when the current tactic is clearly stuck.
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-white px-3 py-1 text-xs font-medium uppercase tracking-[0.2em] text-clay shadow-sm">
+                      system-driven IR
+                    </span>
+                  </div>
+                  <input
+                    className="mt-4 w-full rounded-[20px] border border-clay/15 bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-clay/35"
+                    onChange={(event) => setFailureType(event.target.value)}
+                    placeholder="Failure type, for example REPEAT_CLICK_MENU"
+                    value={failureType}
+                  />
+                  <textarea
+                    className="mt-3 min-h-20 w-full rounded-[22px] border border-clay/15 bg-white px-4 py-3 text-sm leading-6 text-ink outline-none transition focus:border-clay/35"
+                    onChange={(event) => setFailureRationale(event.target.value)}
+                    placeholder="Optional rationale for the recovery proposal."
+                    value={failureRationale}
+                  />
+                  <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <p className="text-sm text-ink/62">
+                      The resulting proposal keeps completed history fixed and only rebuilds the pending suffix.
+                    </p>
+                    <button
+                      className="rounded-full bg-clay px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#b95f36] disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={!canReportFailure}
+                      onClick={handleReportFailure}
+                      type="button"
+                    >
+                      Create recovery proposal
                     </button>
                   </div>
                 </div>

@@ -133,6 +133,23 @@ export async function refreshLiveView(runId: string): Promise<RunState> {
   );
 }
 
+export async function reportFailure(
+  runId: string,
+  failureType: string,
+  rationale: string
+): Promise<Proposal> {
+  return parse<Proposal>(
+    await fetch(`/api/runs/${runId}/failures`, {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify({
+        failure_type: failureType,
+        rationale: rationale || null
+      })
+    })
+  );
+}
+
 export async function updateRunStatus(
   runId: string,
   status: ManualRunStatus,

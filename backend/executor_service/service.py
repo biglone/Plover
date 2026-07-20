@@ -9,6 +9,7 @@ from grpc import ServicerContext
 from executor_service import executor_pb2, executor_pb2_grpc
 from executor_service.driver import EnvironmentDriver, SCREEN_HEIGHT, SCREEN_WIDTH
 from plover_core.detection import Action, NonProgressDetector
+from plover_core.image import dhash_from_image_bytes
 
 
 def _now() -> str:
@@ -55,8 +56,13 @@ def _canonical_action(action: executor_pb2.Action) -> Action:
 
 
 def _screenshot_hash(screenshot: bytes) -> int:
-    digest = blake2b(screenshot, digest_size=8).digest() if screenshot else b"\x00" * 8
-    return int.from_bytes(digest, "big")
+    if not screenshot:
+        return 0
+    try:
+        return dhash_from_image_bytes(screenshot)
+    except Exception:
+        digest = blake2b(screenshot, digest_size=8).digest()
+        return int.from_bytes(digest, "big")
 
 
 class ExecutorService(executor_pb2_grpc.ExecutorServicer):

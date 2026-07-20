@@ -1,6 +1,8 @@
 import unittest
+from io import BytesIO
 
 from plover_core.detection import Action, NonProgressDetector, grayscale_dhash, hamming_distance
+from plover_core.image import dhash_from_image_bytes
 
 
 class DetectionTests(unittest.TestCase):
@@ -31,7 +33,15 @@ class DetectionTests(unittest.TestCase):
 
         self.assertIsNone(result)
 
+    def test_encoded_screenshot_uses_dhash(self) -> None:
+        from PIL import Image
+
+        image = Image.new("L", (18, 16), color=0)
+        output = BytesIO()
+        image.save(output, format="PNG")
+
+        self.assertEqual(dhash_from_image_bytes(output.getvalue()), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -9,6 +9,7 @@ from .models import (
     Proposal,
     ReplanCause,
 )
+from .image import dhash_from_image_bytes
 from .plan import PlanInvariantError, approve_proposal, complete_next_step, replace_pending
 
 __all__ = [
@@ -22,6 +23,6 @@ __all__ = [
     "ReplanCause",
     "approve_proposal",
     "complete_next_step",
+    "dhash_from_image_bytes",
     "replace_pending",
 ]
-

@@ -14,6 +14,32 @@ from planner_service.planner import DeterministicPlanner
 from planner_service.store import PlannerRepository, SqlitePlannerRepository
 
 
+class CapturePlanner(DeterministicPlanner):
+    def __init__(self) -> None:
+        super().__init__()
+        self.last_screenshots: tuple[str, ...] = ()
+
+    def propose_repair(
+        self,
+        current,
+        *,
+        guidance,
+        annotation,
+        failure_type,
+        screenshots=(),
+        rationale=None,
+    ):
+        self.last_screenshots = screenshots
+        return super().propose_repair(
+            current,
+            guidance=guidance,
+            annotation=annotation,
+            failure_type=failure_type,
+            screenshots=screenshots,
+            rationale=rationale,
+        )
+
+
 class PlannerServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         from planner_service.planner import DeterministicPlanner
@@ -75,6 +101,28 @@ class PlannerServiceTests(unittest.TestCase):
         stored = self.repository.get(run_id)
         self.assertIsNotNone(stored)
         self.assertEqual(stored.screenshots, ["screen-1.png", "screen-2.png", "screen-3.png"])
+
+    def test_replan_passes_only_three_recent_screenshots_to_planner(self) -> None:
+        repository = PlannerRepository()
+        planner = CapturePlanner()
+        client = TestClient(create_app(repository, planner, LocalExecutorGateway()))
+
+        run = client.post("/api/runs", json={"task": "Fill the form"}).json()
+        stored = repository.get(run["id"])
+        self.assertIsNotNone(stored)
+        stored.add_screenshot("screen-1.png")
+        stored.add_screenshot("screen-2.png")
+        stored.add_screenshot("screen-3.png")
+
+        response = client.post(
+            f"/api/runs/{run['id']}/replan",
+            json={"guidance": "Use the alternate visible option"},
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(len(planner.last_screenshots), 3)
+        self.assertEqual(planner.last_screenshots[:2], ("screen-2.png", "screen-3.png"))
+        self.assertTrue(planner.last_screenshots[-1].startswith("data:image/png;base64,"))
 
     def test_replan_requires_a_trigger(self) -> None:
         run = self.client.post("/api/runs", json={"task": "Fill the form"}).json()

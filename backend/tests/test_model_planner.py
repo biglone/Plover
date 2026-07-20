@@ -7,10 +7,10 @@ from planner_service.model_planner import ModelPlanner
 class FakeChatModel:
     def __init__(self, response: str) -> None:
         self.response = response
-        self.calls: list[dict[str, str | None]] = []
+        self.calls: list[dict[str, object]] = []
 
-    def complete(self, *, system: str, user: str, image_url: str | None = None) -> str:
-        self.calls.append({"system": system, "user": user, "image_url": image_url})
+    def complete(self, *, system: str, user: str, image_urls: tuple[str, ...] = ()) -> str:
+        self.calls.append({"system": system, "user": user, "image_urls": image_urls})
         return self.response
 
 
@@ -60,8 +60,22 @@ class ModelPlannerTests(unittest.TestCase):
             guidance="Use the marked option",
             annotation=None,
             failure_type=None,
+            screenshots=(
+                "data:image/png;base64,one",
+                "data:image/png;base64,two",
+                "data:image/png;base64,three",
+            ),
         )
 
         self.assertEqual(proposal.version.plan.completed, current.plan.completed)
         self.assertEqual(proposal.version.cause, ReplanCause.USER_GUIDANCE)
         self.assertIn("<current_plan>", model.calls[0]["user"])
+        self.assertIn("<recent_screenshots count=\"3\" />", model.calls[0]["user"])
+        self.assertEqual(
+            model.calls[0]["image_urls"],
+            (
+                "data:image/png;base64,one",
+                "data:image/png;base64,two",
+                "data:image/png;base64,three",
+            ),
+        )

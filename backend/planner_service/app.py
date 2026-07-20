@@ -64,6 +64,20 @@ def _annotation(request: AnnotationRequest | None) -> Annotation | None:
     )
 
 
+def _planner_screenshots(run: RunRecord, annotation: Annotation | None = None) -> tuple[str, ...]:
+    images = [image for image in run.screenshots if image]
+    live_view = run.live_view_data_url()
+    if live_view:
+        images.append(live_view)
+    if annotation and annotation.screenshot:
+        images.append(annotation.screenshot)
+    deduped: list[str] = []
+    for image in images:
+        if image not in deduped:
+            deduped.append(image)
+    return tuple(deduped[-3:])
+
+
 def create_app(
     repository: PlannerRepository | SqlitePlannerRepository | None = None,
     planner: Any | None = None,
@@ -200,12 +214,14 @@ def create_app(
         annotation = _annotation(request.annotation)
         if annotation:
             run.add_screenshot(annotation.screenshot)
+        screenshots = _planner_screenshots(run, annotation)
         try:
             proposal = planner.propose_repair(
                 run.active_version(),
                 guidance=request.guidance,
                 annotation=annotation,
                 failure_type=request.failure_type,
+                screenshots=screenshots,
                 rationale=request.rationale,
             )
         except PlanParseError as error:
@@ -271,6 +287,7 @@ def create_app(
                 guidance=resume_guidance,
                 annotation=None,
                 failure_type=None,
+                screenshots=_planner_screenshots(run),
                 rationale=rationale,
             )
         except PlanParseError as error:
@@ -298,6 +315,7 @@ def create_app(
             guidance=None,
             annotation=None,
             failure_type=request.failure_type,
+            screenshots=_planner_screenshots(run),
             rationale=request.rationale,
         )
         run.proposals[proposal.id] = proposal
@@ -401,6 +419,7 @@ def create_app(
                 guidance=None,
                 annotation=None,
                 failure_type=result.failure_type,
+                screenshots=_planner_screenshots(run),
                 rationale=(
                     f"Execution failed with {result.failure_type}. "
                     "A system-driven recovery proposal was generated automatically."

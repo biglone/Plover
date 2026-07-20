@@ -15,7 +15,7 @@ from planner_service.store import utc_now
 
 
 class ChatModel(Protocol):
-    def complete(self, *, system: str, user: str, image_url: str | None = None) -> str: ...
+    def complete(self, *, system: str, user: str, image_urls: tuple[str, ...] = ()) -> str: ...
 
 
 @dataclass
@@ -25,13 +25,19 @@ class OpenAICompatibleChatModel:
     api_key: str | None = None
     timeout_seconds: float = 90
 
-    def complete(self, *, system: str, user: str, image_url: str | None = None) -> str:
+    def complete(self, *, system: str, user: str, image_urls: tuple[str, ...] = ()) -> str:
         user_content: str | list[dict[str, Any]] = user
-        if image_url and (image_url.startswith("data:image/") or image_url.startswith("http")):
-            user_content = [
-                {"type": "text", "text": user},
-                {"type": "image_url", "image_url": {"url": image_url}},
-            ]
+        valid_images = [
+            image_url
+            for image_url in image_urls
+            if image_url.startswith("data:image/") or image_url.startswith("http")
+        ]
+        if valid_images:
+            user_content = [{"type": "text", "text": user}]
+            user_content.extend(
+                {"type": "image_url", "image_url": {"url": image_url}}
+                for image_url in valid_images
+            )
         payload = {
             "model": self.model,
             "messages": [
@@ -104,12 +110,15 @@ class ModelPlanner:
         guidance: str | None,
         annotation: Annotation | None,
         failure_type: str | None,
+        screenshots: tuple[str, ...] = (),
         rationale: str | None = None,
     ) -> Proposal:
         cause = _cause(guidance=guidance, annotation=annotation, failure_type=failure_type)
         context = [_plan_context(current)]
         if guidance:
             context.append(f"<user_guidance>{guidance}</user_guidance>")
+        if screenshots:
+            context.append(f"<recent_screenshots count=\"{len(screenshots)}\" />")
         if annotation:
             context.append(
                 f"<annotation_bbox x=\"{annotation.x}\" y=\"{annotation.y}\" "
@@ -121,7 +130,7 @@ class ModelPlanner:
         response = self._model.complete(
             system=planner_system_prompt(),
             user="\n".join(context),
-            image_url=annotation.screenshot if annotation else None,
+            image_urls=screenshots,
         )
         parsed = parse_plan_response(response, current=current)
         new_plan = replace_pending(current.plan, parsed.state.pending)

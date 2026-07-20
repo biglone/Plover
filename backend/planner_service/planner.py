@@ -40,6 +40,7 @@ class DeterministicPlanner:
         guidance: str | None,
         annotation: Annotation | None,
         failure_type: str | None,
+        screenshots: tuple[str, ...] = (),
         rationale: str | None = None,
     ) -> Proposal:
         if annotation:
@@ -91,4 +92,3 @@ class DeterministicPlanner:
             rationale=rationale or default_rationale,
             annotation=annotation,
         )
-

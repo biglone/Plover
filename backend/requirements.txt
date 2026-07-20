@@ -1,6 +1,6 @@
 fastapi>=0.115,<1
 uvicorn[standard]>=0.30,<1
 grpcio>=1.66,<2
-protobuf>=5.27,<6
+grpcio-tools>=1.66,<2
+protobuf>=5.27,<8
 Pillow>=10,<12
-

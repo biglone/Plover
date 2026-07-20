@@ -36,11 +36,14 @@ function resumePrompt(stop: RunState["active_safety_stop"]): string {
 }
 
 function describeEvent(event: RunEvent): string {
-  if (event.type === "step_executed" && typeof event.ui_summary === "string" && event.ui_summary) {
+  if (typeof event.ui_summary === "string" && event.ui_summary) {
     return event.ui_summary;
   }
   if (event.type === "step_execution_started" && typeof event.instruction === "string") {
     return `Working on: ${event.instruction}`;
+  }
+  if (event.type === "step_execution_failed" && typeof event.failure_type === "string") {
+    return `Execution paused after detecting ${event.failure_type}.`;
   }
   if (event.type === "proposal_created") {
     return "Waiting for proposal approval before continuing.";
@@ -59,7 +62,7 @@ function describeEvent(event: RunEvent): string {
 
 function eventDetails(event: RunEvent): string[] {
   const details: string[] = [];
-  const fields = ["step_id", "proposal_id", "failure_type", "category", "status", "version_id", "reason"];
+  const fields = ["step_id", "proposal_id", "failure_type", "category", "status", "version_id", "reason", "executor_kind", "detail"];
   for (const field of fields) {
     const value = event[field];
     if (typeof value === "string" && value) {

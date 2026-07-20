@@ -30,6 +30,8 @@ This repository contains a runnable first vertical slice of the design in
   behind the same executor protocol.
 - React + Tailwind UI for plan inspection, live-view annotation, proposal
   approval, progressive-disclosure logs, and Git-style version provenance.
+- Executor action traces surfaced in the run log so the UI can expose both
+  high-level summaries and detailed primitive-level events.
 
 ## Run Locally
 

@@ -9,6 +9,7 @@ import {
   replanWithGuidance
 } from "./api";
 import type { Box, Proposal, RunState, Step } from "./types";
+import VncViewer, { type VncConnectionState } from "./VncViewer";
 
 const initialPrompt =
   "Transfer the visible values into the report form, verify the result, and stop if a password is required.";
@@ -114,12 +115,12 @@ function AnnotationLayer({
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(202,111,71,0.18),_transparent_42%),linear-gradient(130deg,_rgba(53,86,74,0.08),_transparent_56%)]" />
       )}
       <div className="absolute inset-0 bg-gradient-to-b from-white/10 via-transparent to-black/5" />
-      <div className="absolute left-6 top-6 rounded-full border border-white/70 bg-white/75 px-3 py-1 text-xs uppercase tracking-[0.2em] text-moss shadow-sm">
+      <div className="absolute left-3 top-3 rounded-full border border-white/70 bg-white/75 px-3 py-1 text-[10px] uppercase tracking-[0.16em] text-moss shadow-sm sm:left-6 sm:top-6 sm:text-xs sm:tracking-[0.2em]">
         Live View 1024 x 768
       </div>
-      <div className="absolute inset-x-10 bottom-10 rounded-[26px] border border-white/60 bg-white/72 p-5 shadow-lg backdrop-blur">
-        <p className="font-display text-xl text-ink">Draw a box to anchor repair in pixel space</p>
-        <p className="mt-2 max-w-xl text-sm leading-6 text-ink/65">
+      <div className="absolute inset-x-3 bottom-3 rounded-xl border border-white/60 bg-white/80 p-3 shadow-lg backdrop-blur sm:inset-x-10 sm:bottom-10 sm:rounded-[26px] sm:p-5">
+        <p className="font-display text-sm text-ink sm:text-xl">Draw a box to anchor repair in pixel space</p>
+        <p className="mt-2 hidden max-w-xl text-sm leading-6 text-ink/65 sm:block">
           The annotation is sent to the planner as a bounding box so only pending steps are revised.
         </p>
       </div>
@@ -196,6 +197,8 @@ export default function App() {
   const [pendingProposalId, setPendingProposalId] = useState<string | null>(null);
   const [liveImageUrl, setLiveImageUrl] = useState<string | null>(null);
   const [liveConnected, setLiveConnected] = useState(false);
+  const [liveMode, setLiveMode] = useState<"remote" | "annotate">("remote");
+  const [vncState, setVncState] = useState<VncConnectionState>("disconnected");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -208,6 +211,7 @@ export default function App() {
     if (!run) {
       setLiveImageUrl(null);
       setLiveConnected(false);
+      setLiveMode("remote");
       return;
     }
     const timer = window.setInterval(async () => {
@@ -450,33 +454,78 @@ export default function App() {
                   <h2 className="mt-2 font-display text-2xl text-ink">Live view and grounded repair</h2>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className={`h-2.5 w-2.5 rounded-full ${liveConnected ? "bg-moss" : "bg-ink/25"}`} />
+                  <span
+                    className={`h-2.5 w-2.5 rounded-full ${
+                      liveMode === "remote"
+                        ? vncState === "connected"
+                          ? "bg-moss"
+                          : "bg-clay"
+                        : liveConnected
+                          ? "bg-moss"
+                          : "bg-ink/25"
+                    }`}
+                  />
                   <span className="rounded-full bg-mist px-3 py-1 text-xs font-medium uppercase tracking-[0.2em] text-moss">
-                    {liveConnected ? "streaming" : "offline"}
+                    {liveMode === "remote" ? vncState : liveConnected ? "streaming" : "offline"}
                   </span>
                 </div>
               </div>
-              <AnnotationLayer
-                box={selectedBox}
-                onChange={setSelectedBox}
-                imageUrl={liveImageUrl ?? run?.live_view.image_url ?? null}
-              />
-              <div className="mt-4 flex flex-col gap-3 md:flex-row">
+              <div className="mb-4 flex rounded-full border border-moss/10 bg-canvas p-1" role="group">
                 <button
-                  className="rounded-full bg-moss px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#28483e] disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={!run || busy || !selectedBox || selectedBox.width < 4 || selectedBox.height < 4}
-                  onClick={handleAnnotationReplan}
+                  className={`flex-1 rounded-full px-4 py-2 text-sm font-semibold transition ${
+                    liveMode === "remote" ? "bg-moss text-white shadow-sm" : "text-moss hover:bg-white"
+                  }`}
+                  onClick={() => setLiveMode("remote")}
+                  type="button"
                 >
-                  Submit annotation repair
+                  Control desktop
                 </button>
                 <button
-                  className="rounded-full border border-moss/15 bg-white px-4 py-3 text-sm font-semibold text-moss transition hover:bg-mist disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={!selectedBox}
-                  onClick={() => setSelectedBox(null)}
+                  className={`flex-1 rounded-full px-4 py-2 text-sm font-semibold transition ${
+                    liveMode === "annotate" ? "bg-clay text-white shadow-sm" : "text-moss hover:bg-white"
+                  }`}
+                  onClick={() => setLiveMode("annotate")}
+                  type="button"
                 >
-                  Clear box
+                  Annotate screenshot
                 </button>
               </div>
+              {liveMode === "remote" ? (
+                run ? (
+                  <VncViewer runId={run.id} onConnectionChange={setVncState} />
+                ) : (
+                  <div className="grid aspect-[4/3] min-h-[300px] place-items-center rounded-[28px] border border-moss/10 bg-[#16231f] p-6 text-center text-white">
+                    <div>
+                      <p className="font-display text-xl">Remote desktop is ready to connect</p>
+                      <p className="mt-2 text-sm text-white/60">Create a run to open its VNC session.</p>
+                    </div>
+                  </div>
+                )
+              ) : (
+                <>
+                  <AnnotationLayer
+                    box={selectedBox}
+                    onChange={setSelectedBox}
+                    imageUrl={liveImageUrl ?? run?.live_view.image_url ?? null}
+                  />
+                  <div className="mt-4 flex flex-col gap-3 md:flex-row">
+                    <button
+                      className="rounded-full bg-moss px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#28483e] disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={!run || busy || !selectedBox || selectedBox.width < 4 || selectedBox.height < 4}
+                      onClick={handleAnnotationReplan}
+                    >
+                      Submit annotation repair
+                    </button>
+                    <button
+                      className="rounded-full border border-moss/15 bg-white px-4 py-3 text-sm font-semibold text-moss transition hover:bg-mist disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={!selectedBox}
+                      onClick={() => setSelectedBox(null)}
+                    >
+                      Clear box
+                    </button>
+                  </div>
+                </>
+              )}
             </section>
 
             <section className="rounded-[30px] border border-moss/10 bg-white/72 p-5 shadow-panel md:p-6">

@@ -26,3 +26,24 @@ body {
     linear-gradient(90deg, rgba(53, 86, 74, 0.08) 1px, transparent 1px);
   background-size: 48px 48px;
 }
+
+.vnc-screen,
+.vnc-screen > div {
+  width: 100%;
+  height: 100%;
+}
+
+.vnc-screen canvas {
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

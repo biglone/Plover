@@ -132,6 +132,75 @@ class PlannerServiceTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 422)
 
+    def test_manual_edit_creates_a_pending_suffix_proposal(self) -> None:
+        run = self.client.post("/api/runs", json={"task": "Open a report"}).json()
+        run_id = run["id"]
+        progressed = self.client.post(f"/api/runs/{run_id}/steps/complete").json()
+        self.assertEqual(
+            [step["id"] for step in progressed["active_version"]["plan"]["completed"]],
+            ["step-1"],
+        )
+
+        response = self.client.post(
+            f"/api/runs/{run_id}/manual-edit",
+            json={
+                "instructions": [
+                    "Click the export menu",
+                    "Select the CSV option",
+                    "Verify the downloaded file and stop",
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+        proposal = response.json()
+        self.assertEqual(proposal["version"]["cause"], "manual_edit")
+        self.assertEqual(
+            [step["id"] for step in proposal["version"]["plan"]["completed"]],
+            ["step-1"],
+        )
+        self.assertEqual(
+            [step["instruction"] for step in proposal["version"]["plan"]["pending"]],
+            [
+                "Click the export menu",
+                "Select the CSV option",
+                "Verify the downloaded file and stop",
+            ],
+        )
+
+        approved = self.client.post(
+            f"/api/runs/{run_id}/proposals/{proposal['id']}/approve",
+        ).json()
+        self.assertEqual(approved["active_version"]["cause"], "manual_edit")
+        self.assertEqual(
+            [step["instruction"] for step in approved["active_version"]["plan"]["pending"]],
+            [
+                "Click the export menu",
+                "Select the CSV option",
+                "Verify the downloaded file and stop",
+            ],
+        )
+
+    def test_manual_edit_rejects_empty_steps(self) -> None:
+        run = self.client.post("/api/runs", json={"task": "Open a report"}).json()
+
+        response = self.client.post(
+            f"/api/runs/{run['id']}/manual-edit",
+            json={"instructions": ["   ", ""]},
+        )
+
+        self.assertEqual(response.status_code, 422)
+
+    def test_sensitive_manual_edit_is_rejected(self) -> None:
+        run = self.client.post("/api/runs", json={"task": "Open a report"}).json()
+
+        response = self.client.post(
+            f"/api/runs/{run['id']}/manual-edit",
+            json={"instructions": ["Enter the password into the dialog"]},
+        )
+
+        self.assertEqual(response.status_code, 409)
+
     def test_executor_failure_creates_system_driven_recovery_proposal(self) -> None:
         run = self.client.post("/api/runs", json={"task": "Navigate the dashboard"}).json()
 

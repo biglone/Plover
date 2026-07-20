@@ -8,8 +8,8 @@ from uuid import uuid4
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
-from plover_core.models import Annotation, PlanVersion, Proposal
-from plover_core.plan import PlanInvariantError, approve_proposal, complete_next_step
+from plover_core.models import Annotation, PlanState, PlanStep, PlanVersion, Proposal, ReplanCause
+from plover_core.plan import PlanInvariantError, approve_proposal, complete_next_step, replace_pending
 from plover_core.safety import inspect_text
 from plover_core.xml_plan import PlanParseError
 from planner_service.executor_gateway import ExecutorGateway, GrpcExecutorGateway, LocalExecutorGateway
@@ -42,6 +42,11 @@ class FailureRequest(BaseModel):
     rationale: str | None = Field(default=None, max_length=2000)
 
 
+class ManualEditRequest(BaseModel):
+    instructions: list[str] = Field(min_length=1, max_length=20)
+    rationale: str | None = Field(default=None, max_length=2000)
+
+
 class ResumeRunRequest(BaseModel):
     guidance: str | None = Field(default=None, max_length=2000)
     handled_outside: bool = False
@@ -62,6 +67,19 @@ def _annotation(request: AnnotationRequest | None) -> Annotation | None:
         width=request.width,
         height=request.height,
     )
+
+
+def _manual_pending(instructions: list[str]) -> tuple[PlanStep, ...]:
+    normalized = tuple(instruction.strip() for instruction in instructions if instruction.strip())
+    if not normalized:
+        raise HTTPException(status_code=422, detail="at least one non-empty pending step is required")
+    pending: list[PlanStep] = []
+    for instruction in normalized:
+        safety = inspect_text(instruction)
+        if not safety.allowed:
+            raise HTTPException(status_code=409, detail=safety.reason)
+        pending.append(PlanStep(f"step-{uuid4().hex[:8]}", instruction))
+    return tuple(pending)
 
 
 def _record_executor_events(run: RunRecord, step_id: str, events: tuple[Any, ...]) -> None:
@@ -241,6 +259,50 @@ def create_app(
             run.add_event("planner_output_rejected", reason=str(error))
             repository.save(run)
             raise HTTPException(status_code=422, detail=f"planner output rejected: {error}") from error
+        run.proposals[proposal.id] = proposal
+        run.status = "paused"
+        run.add_event(
+            "proposal_created",
+            proposal_id=proposal.id,
+            cause=proposal.version.cause.value,
+        )
+        repository.save(run)
+        return proposal.as_dict()
+
+    @app.post("/api/runs/{run_id}/manual-edit", status_code=201)
+    def propose_manual_edit(run_id: str, request: ManualEditRequest) -> dict[str, Any]:
+        run = get_run(run_id)
+        current = run.active_version()
+        try:
+            pending = _manual_pending(request.instructions)
+            updated_plan = replace_pending(current.plan, pending)
+        except PlanInvariantError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except HTTPException as error:
+            if error.status_code == 409:
+                run.status = "paused"
+                run.add_event("safety_stop", reason=error.detail)
+                repository.save(run)
+            raise
+
+        proposal = Proposal(
+            id=f"proposal-{uuid4().hex[:10]}",
+            base_version_id=current.id,
+            version=PlanVersion(
+                id=f"version-{uuid4().hex[:10]}",
+                plan=PlanState(completed=updated_plan.completed, pending=updated_plan.pending),
+                parent_id=current.id,
+                cause=ReplanCause.MANUAL_EDIT,
+                created_at=utc_now(),
+                derived_constraints=(
+                    "Apply the manually edited pending suffix",
+                    "Preserve completed steps",
+                ),
+            ),
+            summary=pending[0].instruction,
+            rationale=request.rationale
+            or "The pending suffix was edited directly while preserving completed history.",
+        )
         run.proposals[proposal.id] = proposal
         run.status = "paused"
         run.add_event(

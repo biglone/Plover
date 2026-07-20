@@ -15,8 +15,8 @@ This repository contains a runnable first vertical slice of the design in
   primitives.
 - Conservative system-driven non-progress detection using repeated canonical
   actions and screenshot dHash stability.
-- Ubuntu `xdotool` and Windows `pyautogui` driver adapters behind the same
-  executor protocol.
+- Ubuntu `xdotool`, Windows `pyautogui`, and macOS `pyautogui` driver adapters
+  behind the same executor protocol.
 - React + Tailwind UI for plan inspection, live-view annotation, proposal
   approval, and Git-style version provenance.
 
@@ -40,6 +40,18 @@ Executor process, set `PLOVER_EXECUTOR_TARGET`, for example:
 PLOVER_EXECUTOR_TARGET=127.0.0.1:50051 \
 PYTHONPATH=backend .venv/bin/python -m planner_service
 ```
+
+The Executor driver is selected independently:
+
+```bash
+PLOVER_EXECUTOR_DRIVER=macos \
+PYTHONPATH=backend .venv/bin/python -m executor_service
+```
+
+On macOS, grant the terminal or packaged Executor process access under
+**System Settings -> Privacy & Security -> Accessibility** and **Screen
+Recording**. Without both permissions, mouse/keyboard actions or screenshots
+may fail even though the gRPC service is healthy.
 
 ## Integration Boundaries
 

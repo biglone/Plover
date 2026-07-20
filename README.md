@@ -34,3 +34,6 @@ The initial implementation uses a deterministic mock planner and executor by
 default. This keeps the product runnable without credentials while preserving
 the integration seam for a vision-capable model and a real VNC environment.
 
+Executor drivers are selected with `PLOVER_EXECUTOR_DRIVER=mock|linux|windows|macos`.
+macOS uses `pyautogui` and requires Accessibility and Screen Recording
+permissions for the terminal or Executor process.

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import subprocess
 from io import BytesIO
+import sys
+from typing import Type
 
-from executor_service.driver import EnvironmentDriver
+from executor_service.driver import EnvironmentDriver, MockEnvironmentDriver
 
 
 class XdotoolDriver(EnvironmentDriver):
@@ -53,7 +55,7 @@ class XdotoolDriver(EnvironmentDriver):
 
 
 class PyAutoGuiDriver(EnvironmentDriver):
-    """Windows driver backed by pyautogui, imported only when selected."""
+    """Cross-platform driver backed by pyautogui, imported only when selected."""
 
     def __init__(self) -> None:
         try:
@@ -88,3 +90,35 @@ class PyAutoGuiDriver(EnvironmentDriver):
         output = BytesIO()
         self._pyautogui.screenshot().save(output, format="PNG")
         return output.getvalue()
+
+
+class WindowsDriver(PyAutoGuiDriver):
+    """Windows executor driver using pyautogui."""
+
+
+class MacOSDriver(PyAutoGuiDriver):
+    """macOS executor driver using pyautogui and native security permissions."""
+
+
+def driver_class_for(platform_name: str) -> Type[EnvironmentDriver]:
+    normalized = platform_name.strip().lower()
+    if normalized in {"mock", "test"}:
+        return MockEnvironmentDriver
+    if normalized in {"linux", "ubuntu"}:
+        return XdotoolDriver
+    if normalized in {"windows", "win32", "win"}:
+        return WindowsDriver
+    if normalized in {"macos", "mac", "darwin"}:
+        return MacOSDriver
+    raise ValueError(f"unsupported executor platform: {platform_name}")
+
+
+def create_driver(platform_name: str | None = None) -> EnvironmentDriver:
+    selected = platform_name or sys.platform
+    if selected == "darwin":
+        selected = "macos"
+    elif selected.startswith("win"):
+        selected = "windows"
+    elif selected.startswith("linux"):
+        selected = "linux"
+    return driver_class_for(selected)()

@@ -20,6 +20,8 @@ This repository contains a runnable first vertical slice of the design in
 - Manual operator status controls for pausing a run, marking it failed with a
   rationale, and resuming only after safety stops and pending proposals are
   cleared.
+- A manual current-step completion action for operator-approved progress when
+  the visible state is already correct.
 - WebSocket Live View stream at `/api/runs/{run_id}/live` with 1024 x 768
   screenshot frames consumed directly by the React interface.
 - Raw VNC WebSocket bridge at `/api/runs/{run_id}/vnc`, configured with

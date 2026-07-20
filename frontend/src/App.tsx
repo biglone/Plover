@@ -3,6 +3,7 @@ import {
   approveProposal,
   createRun,
   executeNext,
+  completeStep,
   getRun,
   manualEditPending,
   reportFailure,
@@ -48,6 +49,9 @@ function describeEvent(event: RunEvent): string {
   }
   if (event.type === "step_execution_failed" && typeof event.failure_type === "string") {
     return `Execution paused after detecting ${event.failure_type}.`;
+  }
+  if (event.type === "step_completed") {
+    return "Marked the current step complete.";
   }
   if (event.type === "proposal_created") {
     return "Waiting for proposal approval before continuing.";
@@ -366,6 +370,13 @@ export default function App() {
     run?.status !== "completed" &&
     run?.status !== "failed" &&
     Boolean(statusNote.trim());
+  const canCompleteStep =
+    Boolean(run) &&
+    !busy &&
+    run?.status !== "failed" &&
+    !run?.active_safety_stop &&
+    !hasPendingProposals &&
+    Boolean(run?.active_version.plan.pending.length);
   const canExecuteNext =
     Boolean(run) &&
     !busy &&
@@ -601,6 +612,21 @@ export default function App() {
       setRun(await getRun(run.id));
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Failed to create recovery proposal");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleCompleteStep() {
+    if (!run) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      setRun(await completeStep(run.id));
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Failed to mark the current step complete");
     } finally {
       setBusy(false);
     }
@@ -929,6 +955,14 @@ export default function App() {
                       type="button"
                     >
                       Mark failed
+                    </button>
+                    <button
+                      className="rounded-full border border-clay/20 bg-white px-4 py-3 text-sm font-semibold text-clay transition hover:bg-[#fff1e7] disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={!canCompleteStep}
+                      onClick={handleCompleteStep}
+                      type="button"
+                    >
+                      Mark current step complete
                     </button>
                   </div>
                 </div>

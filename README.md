@@ -61,3 +61,5 @@ Operators can also pause a run manually, mark it as failed with a rationale,
 and resume only after pending proposals or safety stops have been cleared.
 When the current tactic is visibly stuck, the UI can also report an executor
 failure type and ask Planner to generate a system-driven recovery proposal.
+If the visible state is already correct, operators can manually mark the
+current step complete without mutating completed history.

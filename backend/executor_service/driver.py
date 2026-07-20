@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from io import BytesIO
 from typing import Protocol
 
 
@@ -58,5 +59,20 @@ class MockEnvironmentDriver:
 
     def screenshot(self) -> bytes:
         self.actions.append(("screenshot", ()))
-        return self.screenshot_bytes
+        if not self.screenshot_bytes:
+            from PIL import Image, ImageDraw
 
+            image = Image.new("RGB", (SCREEN_WIDTH, SCREEN_HEIGHT), color=(248, 244, 236))
+            draw = ImageDraw.Draw(image)
+            draw.rounded_rectangle(
+                (28, 28, SCREEN_WIDTH - 28, SCREEN_HEIGHT - 28),
+                radius=28,
+                fill=(255, 252, 247),
+                outline=(53, 86, 74),
+                width=3,
+            )
+            draw.text((72, 76), "Plover Executor Live View", fill=(53, 86, 74))
+            output = BytesIO()
+            image.save(output, format="PNG")
+            self.screenshot_bytes = output.getvalue()
+        return self.screenshot_bytes

@@ -57,3 +57,5 @@ treated as policy instructions rather than secret material. When a run is
 paused for a real sensitive or ambiguous interaction, the UI now exposes an
 explicit resume flow that can either capture a clarification or continue after
 the user completed the blocked action outside the agent.
+Operators can also pause a run manually, mark it as failed with a rationale,
+and resume only after pending proposals or safety stops have been cleared.

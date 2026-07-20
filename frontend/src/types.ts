@@ -36,6 +36,8 @@ export type Proposal = {
   version: PlanVersion;
 };
 
+export type ManualRunStatus = "running" | "paused" | "failed";
+
 export type RunState = {
   id: string;
   task: string;

@@ -1,4 +1,4 @@
-import type { Box, Proposal, RunState } from "./types";
+import type { Box, ManualRunStatus, Proposal, RunState } from "./types";
 
 const jsonHeaders = {
   "Content-Type": "application/json"
@@ -129,6 +129,20 @@ export async function refreshLiveView(runId: string): Promise<RunState> {
   return parse<RunState>(
     await fetch(`/api/runs/${runId}/observe`, {
       method: "POST"
+    })
+  );
+}
+
+export async function updateRunStatus(
+  runId: string,
+  status: ManualRunStatus,
+  reason: string
+): Promise<RunState> {
+  return parse<RunState>(
+    await fetch(`/api/runs/${runId}/status`, {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify({ status, reason })
     })
   );
 }

@@ -17,6 +17,9 @@ This repository contains a runnable first vertical slice of the design in
   the latest Live View frame.
 - Safety stops for sensitive data and subjective ambiguity before execution,
   plus an explicit resume endpoint and UI for post-pause recovery.
+- Manual operator status controls for pausing a run, marking it failed with a
+  rationale, and resuming only after safety stops and pending proposals are
+  cleared.
 - WebSocket Live View stream at `/api/runs/{run_id}/live` with 1024 x 768
   screenshot frames consumed directly by the React interface.
 - Raw VNC WebSocket bridge at `/api/runs/{run_id}/vnc`, configured with

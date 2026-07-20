@@ -9,9 +9,10 @@ import {
   resumeRun,
   rejectProposal,
   replanWithAnnotation,
-  replanWithGuidance
+  replanWithGuidance,
+  updateRunStatus
 } from "./api";
-import type { Box, Proposal, RunState, Step } from "./types";
+import type { Box, ManualRunStatus, Proposal, RunState, Step } from "./types";
 import VncViewer, { type VncConnectionState } from "./VncViewer";
 
 const initialPrompt =
@@ -58,6 +59,21 @@ function describeEvent(event: RunEvent): string {
   }
   if (event.type === "execution_blocked" && typeof event.reason === "string" && event.reason) {
     return event.reason;
+  }
+  if (event.type === "status_changed" && typeof event.status === "string") {
+    if (event.status === "failed") {
+      return typeof event.reason === "string" && event.reason
+        ? `Run marked as failed: ${event.reason}`
+        : "Run marked as failed.";
+    }
+    if (event.status === "paused") {
+      return typeof event.reason === "string" && event.reason ? `Run paused: ${event.reason}` : "Run paused.";
+    }
+    if (event.status === "running") {
+      return typeof event.reason === "string" && event.reason
+        ? `Run resumed: ${event.reason}`
+        : "Run resumed.";
+    }
   }
   return formatEventType(event.type);
 }
@@ -274,6 +290,7 @@ export default function App() {
   const [liveConnected, setLiveConnected] = useState(false);
   const [liveMode, setLiveMode] = useState<"remote" | "annotate">("remote");
   const [resumeNote, setResumeNote] = useState("");
+  const [statusNote, setStatusNote] = useState("");
   const [showLogs, setShowLogs] = useState(false);
   const [vncState, setVncState] = useState<VncConnectionState>("disconnected");
   const [busy, setBusy] = useState(false);
@@ -318,6 +335,37 @@ export default function App() {
     }
     return "The plan is ready for its first action.";
   }, [hasPendingProposals, run]);
+  const manualResumeBlocker = useMemo(() => {
+    if (!run) {
+      return null;
+    }
+    if (run.active_safety_stop) {
+      return "Resolve the safety pause before resuming normal execution.";
+    }
+    if (hasPendingProposals) {
+      return "Approve or discard pending proposals before resuming execution.";
+    }
+    if (run.active_version.plan.pending.length === 0) {
+      return "The run has no pending steps left to execute.";
+    }
+    return null;
+  }, [hasPendingProposals, run]);
+  const canPauseRun = Boolean(run) && !busy && !["paused", "failed", "completed"].includes(run?.status ?? "");
+  const canResumeRun = Boolean(run) && !busy && run?.status !== "running" && run?.status !== "completed" && !manualResumeBlocker;
+  const canFailRun =
+    Boolean(run) &&
+    !busy &&
+    run?.status !== "completed" &&
+    run?.status !== "failed" &&
+    Boolean(statusNote.trim());
+  const canExecuteNext =
+    Boolean(run) &&
+    !busy &&
+    run?.status !== "paused" &&
+    run?.status !== "failed" &&
+    run?.status !== "completed" &&
+    !hasPendingProposals &&
+    Boolean(run?.active_version.plan.pending.length);
 
   useEffect(() => {
     if (!run) {
@@ -327,6 +375,7 @@ export default function App() {
       setManualEditText("");
       setSelectedProposalId(null);
       setResumeNote("");
+      setStatusNote("");
       setShowLogs(false);
       return;
     }
@@ -512,6 +561,23 @@ export default function App() {
     }
   }
 
+  async function handleStatusChange(status: ManualRunStatus) {
+    if (!run) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const next = await updateRunStatus(run.id, status, statusNote.trim());
+      setRun(next);
+      setStatusNote("");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Failed to update run status");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-canvas px-4 py-6 font-body text-ink md:px-8">
       <div className="mx-auto max-w-[1480px]">
@@ -575,7 +641,7 @@ export default function App() {
                   </button>
                   <button
                     className="rounded-full border border-moss/15 bg-moss px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#26453b] disabled:cursor-not-allowed disabled:opacity-60"
-                    disabled={!run || busy}
+                    disabled={!canExecuteNext}
                     onClick={async () => {
                       if (!run) return;
                       setBusy(true);
@@ -789,6 +855,56 @@ export default function App() {
                   </div>
                 ) : null}
               </div>
+              {run ? (
+                <div className="mb-4 rounded-[26px] border border-moss/10 bg-white/85 p-4">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-clay">Operator controls</p>
+                      <p className="mt-2 text-sm leading-6 text-ink/68">
+                        Pause or fail the run manually, then resume once the path is clear again.
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-mist px-3 py-1 text-xs font-medium uppercase tracking-[0.2em] text-moss">
+                      {run.status}
+                    </span>
+                  </div>
+                  <textarea
+                    className="mt-4 min-h-20 w-full rounded-[22px] border border-moss/10 bg-canvas px-4 py-3 text-sm leading-6 text-ink outline-none transition focus:border-moss/30"
+                    onChange={(event) => setStatusNote(event.target.value)}
+                    placeholder="Optional operator note. Required when marking the run as failed."
+                    value={statusNote}
+                  />
+                  {manualResumeBlocker ? (
+                    <p className="mt-3 text-sm text-clay">{manualResumeBlocker}</p>
+                  ) : null}
+                  <div className="mt-4 flex flex-col gap-3 md:flex-row">
+                    <button
+                      className="rounded-full border border-moss/15 bg-white px-4 py-3 text-sm font-semibold text-moss transition hover:bg-mist disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={!canPauseRun}
+                      onClick={() => handleStatusChange("paused")}
+                      type="button"
+                    >
+                      Pause run
+                    </button>
+                    <button
+                      className="rounded-full bg-moss px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#28483e] disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={!canResumeRun}
+                      onClick={() => handleStatusChange("running")}
+                      type="button"
+                    >
+                      Resume run
+                    </button>
+                    <button
+                      className="rounded-full bg-clay px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#b95f36] disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={!canFailRun}
+                      onClick={() => handleStatusChange("failed")}
+                      type="button"
+                    >
+                      Mark failed
+                    </button>
+                  </div>
+                </div>
+              ) : null}
               {run?.active_safety_stop && !hasPendingProposals ? (
                 <div className="mb-4 rounded-[26px] border border-amber-200 bg-amber-50 p-4">
                   <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-700">

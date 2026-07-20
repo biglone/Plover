@@ -1,0 +1,62 @@
+export type Step = {
+  id: string;
+  instruction: string;
+  status: string;
+  ui_summary?: string | null;
+  failure_reason?: string | null;
+};
+
+export type PlanVersion = {
+  id: string;
+  parent_id: string | null;
+  cause: string;
+  created_at: string;
+  derived_constraints: string[];
+  plan: {
+    completed: Step[];
+    pending: Step[];
+  };
+};
+
+export type Proposal = {
+  id: string;
+  base_version_id: string;
+  summary: string;
+  rationale: string;
+  status: string;
+  annotation?: {
+    screenshot: string;
+    bbox: {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    };
+  } | null;
+  version: PlanVersion;
+};
+
+export type RunState = {
+  id: string;
+  task: string;
+  status: string;
+  active_version_id: string;
+  active_version: PlanVersion;
+  versions: PlanVersion[];
+  proposals: Proposal[];
+  events: {
+    id: string;
+    type: string;
+    created_at: string;
+    [key: string]: unknown;
+  }[];
+  screenshot_count: number;
+};
+
+export type Box = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+

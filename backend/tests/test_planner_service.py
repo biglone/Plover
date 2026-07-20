@@ -77,6 +77,28 @@ class PlannerServiceTests(unittest.TestCase):
         self.assertEqual([step["id"] for step in active_completed], ["step-1"])
         self.assertEqual(approved_json["status"], "running")
 
+    def test_approving_a_proposal_supersedes_other_pending_candidates(self) -> None:
+        run = self.client.post("/api/runs", json={"task": "Open a report"}).json()
+        run_id = run["id"]
+
+        first = self.client.post(
+            f"/api/runs/{run_id}/replan",
+            json={"guidance": "Select the second option instead"},
+        ).json()
+        second = self.client.post(
+            f"/api/runs/{run_id}/manual-edit",
+            json={"instructions": ["Use the export menu", "Verify the visible outcome and stop"]},
+        ).json()
+
+        approved = self.client.post(
+            f"/api/runs/{run_id}/proposals/{second['id']}/approve",
+        ).json()
+
+        proposal_statuses = {proposal["id"]: proposal["status"] for proposal in approved["proposals"]}
+        self.assertEqual(proposal_statuses[second["id"]], "approved")
+        self.assertEqual(proposal_statuses[first["id"]], "superseded")
+        self.assertIn("proposal_superseded", [event["type"] for event in approved["events"]])
+
     def test_annotation_replan_tracks_recent_screenshots(self) -> None:
         run = self.client.post("/api/runs", json={"task": "Fill the form"}).json()
         run_id = run["id"]
@@ -200,6 +222,40 @@ class PlannerServiceTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 409)
+
+    def test_rejecting_proposals_updates_queue_and_restores_safety_pause(self) -> None:
+        run = self.client.post(
+            "/api/runs",
+            json={"task": "Enter the password into the login form"},
+        ).json()
+
+        first = self.client.post(
+            f"/api/runs/{run['id']}/resume",
+            json={
+                "handled_outside": False,
+                "guidance": "Use the visible recovery flow after I confirm the login code.",
+            },
+        ).json()
+        second = self.client.post(
+            f"/api/runs/{run['id']}/manual-edit",
+            json={"instructions": ["Wait for my confirmation before continuing"]},
+        ).json()
+
+        reject_first = self.client.post(f"/api/runs/{run['id']}/proposals/{first['id']}/reject")
+        self.assertEqual(reject_first.status_code, 200)
+        after_first = reject_first.json()
+        statuses = {proposal["id"]: proposal["status"] for proposal in after_first["proposals"]}
+        self.assertEqual(statuses[first["id"]], "rejected")
+        self.assertEqual(statuses[second["id"]], "pending")
+        self.assertEqual(after_first["status"], "paused")
+
+        reject_second = self.client.post(f"/api/runs/{run['id']}/proposals/{second['id']}/reject")
+        self.assertEqual(reject_second.status_code, 200)
+        after_second = reject_second.json()
+        self.assertEqual(after_second["status"], "paused")
+        self.assertIsNotNone(after_second["active_safety_stop"])
+        self.assertEqual(after_second["active_safety_stop"]["category"], "sensitive_data")
+        self.assertIn("proposal_rejected", [event["type"] for event in after_second["events"]])
 
     def test_executor_failure_creates_system_driven_recovery_proposal(self) -> None:
         run = self.client.post("/api/runs", json={"task": "Navigate the dashboard"}).json()
@@ -366,7 +422,7 @@ class PlannerServiceTests(unittest.TestCase):
 
         state = self.client.get(f"/api/runs/{run['id']}").json()
         self.assertEqual(state["status"], "paused")
-        self.assertEqual(state["active_safety_stop"], None)
+        self.assertIsNotNone(state["active_safety_stop"])
         self.assertEqual(state["events"][-1]["type"], "safety_resume_proposed")
 
     def test_safety_resume_requires_clarification_when_not_handled_outside(self) -> None:

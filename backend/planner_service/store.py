@@ -61,12 +61,9 @@ class RunRecord:
 
     def active_safety_stop(self) -> dict[str, Any] | None:
         resolution_events = {
-            "proposal_created",
-            "safety_resume_proposed",
             "proposal_approved",
             "step_completed",
             "step_executed",
-            "system_recovery_proposed",
         }
         for event in reversed(self.events):
             if event["type"] in resolution_events:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace as dataclass_replace
 import os
 from typing import Any
 from uuid import uuid4
@@ -92,6 +93,16 @@ def _record_executor_events(run: RunRecord, step_id: str, events: tuple[Any, ...
             detail=event.detail,
             created_at=event.created_at,
         )
+
+
+def _sync_run_status(run: RunRecord) -> None:
+    if run.active_safety_stop():
+        run.status = "paused"
+        return
+    if any(proposal.status == "pending" for proposal in run.proposals.values()):
+        run.status = "paused"
+        return
+    run.status = "completed" if not run.active_version().plan.pending else "running"
 
 
 def _planner_screenshots(run: RunRecord, annotation: Annotation | None = None) -> tuple[str, ...]:
@@ -423,8 +434,30 @@ def create_app(
             status="approved",
             annotation=proposal.annotation,
         )
-        run.status = "running"
+        for other in run.proposals.values():
+            if other.id != proposal_id and other.status == "pending" and other.base_version_id == proposal.base_version_id:
+                run.proposals[other.id] = dataclass_replace(other, status="superseded")
+                run.add_event(
+                    "proposal_superseded",
+                    proposal_id=other.id,
+                    superseded_by=proposal_id,
+                )
         run.add_event("proposal_approved", proposal_id=proposal_id, version_id=approved.id)
+        _sync_run_status(run)
+        repository.save(run)
+        return run.as_dict()
+
+    @app.post("/api/runs/{run_id}/proposals/{proposal_id}/reject")
+    def reject_replan(run_id: str, proposal_id: str) -> dict[str, Any]:
+        run = get_run(run_id)
+        proposal = run.proposals.get(proposal_id)
+        if proposal is None:
+            raise HTTPException(status_code=404, detail="proposal not found")
+        if proposal.status != "pending":
+            raise HTTPException(status_code=409, detail="proposal is not pending")
+        run.proposals[proposal_id] = dataclass_replace(proposal, status="rejected")
+        run.add_event("proposal_rejected", proposal_id=proposal_id)
+        _sync_run_status(run)
         repository.save(run)
         return run.as_dict()
 

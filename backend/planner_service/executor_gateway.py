@@ -4,9 +4,11 @@ from dataclasses import dataclass
 from io import BytesIO
 from typing import Protocol
 
+import grpc
 from PIL import Image, ImageDraw
 
 from executor_service import executor_pb2
+from executor_service import executor_pb2_grpc
 from executor_service.driver import MockEnvironmentDriver, SCREEN_HEIGHT, SCREEN_WIDTH
 from executor_service.service import ExecutorService
 from plover_core.models import PlanStep
@@ -138,3 +140,60 @@ class LocalExecutorGateway:
             width=response.width,
             height=response.height,
         )
+
+
+def actions_for_step(step: PlanStep) -> list[executor_pb2.Action]:
+    """Compile the deterministic prototype step language into executor primitives."""
+    instruction = step.instruction.lower()
+    if "capture" in instruction or "screen" in instruction or "verify" in instruction:
+        return [executor_pb2.Action(observe=executor_pb2.ObserveAction())]
+    if "type" in instruction or "enter" in instruction:
+        return [executor_pb2.Action(keyboard=executor_pb2.KeyboardAction(text=step.instruction[:48]))]
+    if "click" in instruction or "select" in instruction or "choose" in instruction:
+        return [
+            executor_pb2.Action(
+                pointer=executor_pb2.PointerAction(
+                    kind=executor_pb2.PointerAction.CLICK,
+                    x=420,
+                    y=280,
+                )
+            )
+        ]
+    return [
+        executor_pb2.Action(wait=executor_pb2.WaitAction(milliseconds=250)),
+        executor_pb2.Action(observe=executor_pb2.ObserveAction()),
+    ]
+
+
+class GrpcExecutorGateway:
+    """Network gateway used when Planner and Executor run as separate services."""
+
+    def __init__(self, target: str) -> None:
+        self._channel = grpc.insecure_channel(target)
+        self._stub = executor_pb2_grpc.ExecutorStub(self._channel)
+
+    def execute_step(self, run_id: str, step: PlanStep) -> ExecutorResult:
+        response = self._stub.Execute(
+            executor_pb2.ExecuteRequest(
+                run_id=run_id,
+                step_id=step.id,
+                actions=actions_for_step(step),
+            )
+        )
+        return ExecutorResult(
+            ok=response.ok,
+            summary=response.summary,
+            screenshot_png=response.screenshot_png,
+            failure_type=response.failure_type or None,
+        )
+
+    def observe(self, run_id: str) -> LiveObservation:
+        response = self._stub.Observe(executor_pb2.ObserveRequest(run_id=run_id))
+        return LiveObservation(
+            screenshot_png=response.screenshot_png,
+            width=response.width,
+            height=response.height,
+        )
+
+    def close(self) -> None:
+        self._channel.close()

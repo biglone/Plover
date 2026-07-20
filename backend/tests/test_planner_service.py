@@ -1,9 +1,11 @@
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 
+import grpc
 from fastapi.testclient import TestClient
 
 from planner_service.app import create_app
-from planner_service.executor_gateway import LocalExecutorGateway
+from planner_service.executor_gateway import GrpcExecutorGateway, LocalExecutorGateway
 from planner_service.store import PlannerRepository
 
 
@@ -110,6 +112,40 @@ class PlannerServiceTests(unittest.TestCase):
         observed = response.json()
         self.assertEqual(observed["live_view"]["width"], 1024)
         self.assertEqual(observed["live_view"]["height"], 768)
+
+    def test_remote_grpc_gateway_executes_against_executor_service(self) -> None:
+        from executor_service import executor_pb2_grpc
+        from executor_service.driver import MockEnvironmentDriver
+        from executor_service.service import ExecutorService
+
+        server = grpc.server(ThreadPoolExecutor(max_workers=2))
+        executor_pb2_grpc.add_ExecutorServicer_to_server(
+            ExecutorService(MockEnvironmentDriver(screenshot_bytes=b"png")),
+            server,
+        )
+        port = server.add_insecure_port("127.0.0.1:0")
+        server.start()
+        gateway = GrpcExecutorGateway(f"127.0.0.1:{port}")
+        try:
+            run = self.client.post("/api/runs", json={"task": "Use the remote executor"}).json()
+            remote_app = TestClient(
+                create_app(
+                    PlannerRepository(),
+                    executor=gateway,
+                )
+            )
+            remote_run = remote_app.post("/api/runs", json={"task": "Use the remote executor"}).json()
+            response = remote_app.post(f"/api/runs/{remote_run['id']}/execute-next")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(
+                response.json()["active_version"]["plan"]["completed"][0]["id"],
+                "step-1",
+            )
+            self.assertTrue(run["live_view"]["image_url"])
+        finally:
+            gateway.close()
+            server.stop(0)
 
 
 if __name__ == "__main__":

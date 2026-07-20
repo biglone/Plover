@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any
 from uuid import uuid4
 
@@ -8,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from plover_core.models import Annotation, PlanVersion, Proposal
 from plover_core.plan import PlanInvariantError, approve_proposal, complete_next_step
-from planner_service.executor_gateway import ExecutorGateway, LocalExecutorGateway
+from planner_service.executor_gateway import ExecutorGateway, GrpcExecutorGateway, LocalExecutorGateway
 from planner_service.planner import DeterministicPlanner
 from planner_service.store import PlannerRepository, RunRecord, utc_now
 
@@ -61,7 +62,9 @@ def create_app(
 ) -> FastAPI:
     repository = repository or PlannerRepository()
     planner = planner or DeterministicPlanner()
-    executor = executor or LocalExecutorGateway()
+    if executor is None:
+        executor_target = os.getenv("PLOVER_EXECUTOR_TARGET")
+        executor = GrpcExecutorGateway(executor_target) if executor_target else LocalExecutorGateway()
     app = FastAPI(title="Plover Planner Service", version="0.1.0")
 
     def get_run(run_id: str) -> RunRecord:

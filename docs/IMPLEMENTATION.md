@@ -33,7 +33,13 @@ cd frontend && npm install && npm run dev
 
 The default planner and executor are deterministic local implementations so
 the workflow runs without credentials or a VNC server. The UI's live view is
-an annotation-capable placeholder until a VNC/WebSocket gateway is connected.
+an annotation-capable screenshot surface. To run Planner against a separate
+Executor process, set `PLOVER_EXECUTOR_TARGET`, for example:
+
+```bash
+PLOVER_EXECUTOR_TARGET=127.0.0.1:50051 \
+PYTHONPATH=backend .venv/bin/python -m planner_service
+```
 
 ## Integration Boundaries
 

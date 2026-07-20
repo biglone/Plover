@@ -257,6 +257,70 @@ class PlannerServiceTests(unittest.TestCase):
         self.assertEqual(after_second["active_safety_stop"]["category"], "sensitive_data")
         self.assertIn("proposal_rejected", [event["type"] for event in after_second["events"]])
 
+    def test_failed_status_blocks_execution_until_operator_resets_it(self) -> None:
+        run = self.client.post("/api/runs", json={"task": "Open a report"}).json()
+
+        failed = self.client.post(
+            f"/api/runs/{run['id']}/status",
+            json={"status": "failed", "reason": "Operator noticed an unexpected modal dialog"},
+        )
+        self.assertEqual(failed.status_code, 200)
+        failed_state = failed.json()
+        self.assertEqual(failed_state["status"], "failed")
+        self.assertEqual(failed_state["events"][-1]["type"], "status_changed")
+
+        blocked = self.client.post(f"/api/runs/{run['id']}/execute-next")
+        self.assertEqual(blocked.status_code, 200)
+        blocked_state = blocked.json()
+        self.assertEqual(blocked_state["status"], "failed")
+        self.assertEqual(blocked_state["events"][-1]["type"], "execution_blocked")
+        self.assertIn("manual reset", blocked_state["events"][-1]["reason"])
+
+        resumed = self.client.post(
+            f"/api/runs/{run['id']}/status",
+            json={"status": "running", "reason": "Modal dismissed and execution can continue"},
+        )
+        self.assertEqual(resumed.status_code, 200)
+        self.assertEqual(resumed.json()["status"], "running")
+
+        executed = self.client.post(f"/api/runs/{run['id']}/execute-next")
+        self.assertEqual(executed.status_code, 200)
+        self.assertEqual(executed.json()["active_version"]["plan"]["completed"][0]["id"], "step-1")
+
+    def test_running_status_requires_a_clear_execution_path(self) -> None:
+        sensitive = self.client.post(
+            "/api/runs",
+            json={"task": "Enter the password into the login form"},
+        ).json()
+        sensitive_resume = self.client.post(
+            f"/api/runs/{sensitive['id']}/status",
+            json={"status": "running", "reason": "Try to resume anyway"},
+        )
+        self.assertEqual(sensitive_resume.status_code, 409)
+        self.assertIn("safety stop", sensitive_resume.json()["detail"])
+
+        queued = self.client.post("/api/runs", json={"task": "Open a report"}).json()
+        self.client.post(
+            f"/api/runs/{queued['id']}/replan",
+            json={"guidance": "Choose the visible recovery option instead"},
+        )
+        queued_resume = self.client.post(
+            f"/api/runs/{queued['id']}/status",
+            json={"status": "running", "reason": "Resume before resolving proposals"},
+        )
+        self.assertEqual(queued_resume.status_code, 409)
+        self.assertIn("pending proposals", queued_resume.json()["detail"])
+
+    def test_failed_status_requires_a_reason(self) -> None:
+        run = self.client.post("/api/runs", json={"task": "Open a report"}).json()
+
+        response = self.client.post(
+            f"/api/runs/{run['id']}/status",
+            json={"status": "failed"},
+        )
+
+        self.assertEqual(response.status_code, 422)
+
     def test_executor_failure_creates_system_driven_recovery_proposal(self) -> None:
         run = self.client.post("/api/runs", json={"task": "Navigate the dashboard"}).json()
 

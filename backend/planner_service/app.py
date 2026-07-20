@@ -105,6 +105,16 @@ def _sync_run_status(run: RunRecord) -> None:
     run.status = "completed" if not run.active_version().plan.pending else "running"
 
 
+def _manual_status_blocker(run: RunRecord) -> str | None:
+    if run.active_safety_stop():
+        return "run is blocked by a safety stop"
+    if any(proposal.status == "pending" for proposal in run.proposals.values()):
+        return "run has pending proposals that must be resolved first"
+    if not run.active_version().plan.pending:
+        return "run has no pending steps left to execute"
+    return None
+
+
 def _planner_screenshots(run: RunRecord, annotation: Annotation | None = None) -> tuple[str, ...]:
     images = [image for image in run.screenshots if image]
     live_view = run.live_view_data_url()
@@ -488,10 +498,15 @@ def create_app(
     @app.post("/api/runs/{run_id}/execute-next")
     def execute_next(run_id: str) -> dict[str, Any]:
         run = get_run(run_id)
-        if run.status == "paused":
+        if run.status in {"paused", "failed"}:
+            reason = (
+                "Run is paused and requires user guidance before execution."
+                if run.status == "paused"
+                else "Run is failed and requires a manual reset before execution."
+            )
             run.add_event(
                 "execution_blocked",
-                reason="Run is paused and requires user guidance before execution.",
+                reason=reason,
             )
             repository.save(run)
             return run.as_dict()
@@ -569,8 +584,15 @@ def create_app(
     @app.post("/api/runs/{run_id}/status")
     def update_status(run_id: str, request: StatusRequest) -> dict[str, Any]:
         run = get_run(run_id)
+        reason = (request.reason or "").strip() or None
+        if request.status == "failed" and reason is None:
+            raise HTTPException(status_code=422, detail="reason is required when marking a run as failed")
+        if request.status == "running":
+            blocker = _manual_status_blocker(run)
+            if blocker is not None:
+                raise HTTPException(status_code=409, detail=blocker)
         run.status = request.status
-        run.add_event("status_changed", status=request.status, reason=request.reason)
+        run.add_event("status_changed", status=request.status, reason=reason)
         repository.save(run)
         return run.as_dict()
 

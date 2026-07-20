@@ -13,6 +13,7 @@ This repository contains a runnable first vertical slice of the design in
 - Screenshot retention capped at the three most recent artifacts per run.
 - SQLite persistence for plans, proposals, timeline events, screenshots, and
   the latest Live View frame.
+- Safety stops for sensitive data and subjective ambiguity before execution.
 - Executor gRPC contract for pointer, keyboard, scroll, wait, and observation
   primitives.
 - Conservative system-driven non-progress detection using repeated canonical
@@ -73,3 +74,5 @@ may fail even though the gRPC service is healthy.
   forwards user annotation metadata.
 - Move SQLite to Postgres or another shared database for multi-process
   deployment.
+- Add an explicit user-guidance flow to resume a safety-paused run after the
+  sensitive or ambiguous input has been supplied outside the agent.

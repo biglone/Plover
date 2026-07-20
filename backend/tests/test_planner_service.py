@@ -179,6 +179,30 @@ class PlannerServiceTests(unittest.TestCase):
             self.assertGreaterEqual(len(restored.events), 3)
             second_repository.close()
 
+    def test_sensitive_task_is_paused_before_execution(self) -> None:
+        run = self.client.post(
+            "/api/runs",
+            json={"task": "Enter the password into the login form"},
+        ).json()
+
+        self.assertEqual(run["status"], "paused")
+        self.assertEqual(run["events"][-1]["type"], "safety_stop")
+
+        blocked = self.client.post(f"/api/runs/{run['id']}/execute-next").json()
+
+        self.assertEqual(blocked["status"], "paused")
+        self.assertEqual(blocked["events"][-1]["type"], "execution_blocked")
+
+    def test_sensitive_replan_is_rejected(self) -> None:
+        run = self.client.post("/api/runs", json={"task": "Open the report"}).json()
+
+        response = self.client.post(
+            f"/api/runs/{run['id']}/replan",
+            json={"guidance": "Enter the API key now"},
+        )
+
+        self.assertEqual(response.status_code, 409)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from plover_core.models import Annotation, PlanVersion, Proposal
 from plover_core.plan import PlanInvariantError, approve_proposal, complete_next_step
+from plover_core.safety import inspect_text
 from planner_service.executor_gateway import ExecutorGateway, GrpcExecutorGateway, LocalExecutorGateway
 from planner_service.planner import DeterministicPlanner
 from planner_service.store import PlannerRepository, RunRecord, SqlitePlannerRepository, create_repository, utc_now
@@ -80,6 +81,7 @@ def create_app(
     @app.post("/api/runs", status_code=201)
     def create_run(request: CreateRunRequest) -> dict[str, Any]:
         initial = planner.create_initial(request.task)
+        safety = inspect_text(request.task)
         run = RunRecord(
             id=f"run-{uuid4().hex[:10]}",
             task=request.task,
@@ -90,6 +92,13 @@ def create_app(
         observation = executor.observe(run.id)
         run.set_live_view(observation.screenshot_png, width=observation.width, height=observation.height)
         run.add_event("plan_created", version_id=initial.id, cause=initial.cause.value)
+        if not safety.allowed:
+            run.status = "paused"
+            run.add_event(
+                "safety_stop",
+                category=safety.category,
+                reason=safety.reason,
+            )
         repository.create(run)
         return run.as_dict()
 
@@ -109,6 +118,16 @@ def create_app(
     @app.post("/api/runs/{run_id}/replan", status_code=201)
     def propose_replan(run_id: str, request: ReplanRequest) -> dict[str, Any]:
         run = get_run(run_id)
+        safety = inspect_text(request.guidance or "")
+        if not safety.allowed:
+            run.status = "paused"
+            run.add_event(
+                "safety_stop",
+                category=safety.category,
+                reason=safety.reason,
+            )
+            repository.save(run)
+            raise HTTPException(status_code=409, detail=safety.reason)
         if not any((request.guidance, request.annotation, request.failure_type)):
             raise HTTPException(
                 status_code=422,
@@ -207,6 +226,13 @@ def create_app(
     @app.post("/api/runs/{run_id}/execute-next")
     def execute_next(run_id: str) -> dict[str, Any]:
         run = get_run(run_id)
+        if run.status == "paused":
+            run.add_event(
+                "execution_blocked",
+                reason="Run is paused and requires user guidance before execution.",
+            )
+            repository.save(run)
+            return run.as_dict()
         current = run.active_version()
         if not current.plan.pending:
             run.status = "completed"
@@ -214,6 +240,17 @@ def create_app(
             return run.as_dict()
 
         step = current.plan.pending[0]
+        safety = inspect_text(step.instruction)
+        if not safety.allowed:
+            run.status = "paused"
+            run.add_event(
+                "safety_stop",
+                step_id=step.id,
+                category=safety.category,
+                reason=safety.reason,
+            )
+            repository.save(run)
+            return run.as_dict()
         run.status = "running"
         run.add_event("step_execution_started", step_id=step.id, instruction=step.instruction)
         result = executor.execute_step(run.id, step)

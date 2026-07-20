@@ -18,6 +18,8 @@ This repository contains a runnable first vertical slice of the design in
   screenshot frames consumed directly by the React interface.
 - Raw VNC WebSocket bridge at `/api/runs/{run_id}/vnc`, configured with
   `PLOVER_VNC_TARGET=host:port`.
+- Browser noVNC client with interactive control, view-only mode, in-memory
+  credential prompts, reconnection, and screenshot annotation fallback.
 - Executor gRPC contract for pointer, keyboard, scroll, wait, and observation
   primitives.
 - Conservative system-driven non-progress detection using repeated canonical
@@ -39,9 +41,10 @@ cd frontend && npm install && npm run dev
 ```
 
 The default planner and executor are deterministic local implementations so
-the workflow runs without credentials or a VNC server. The UI's live view is
-an annotation-capable screenshot surface. To run Planner against a separate
-Executor process, set `PLOVER_EXECUTOR_TARGET`, for example:
+the workflow runs without credentials or a VNC server. The Live View offers
+an interactive VNC desktop when `PLOVER_VNC_TARGET` is configured and retains
+an annotation-capable screenshot mode as a fallback. To run Planner against a
+separate Executor process, set `PLOVER_EXECUTOR_TARGET`, for example:
 
 ```bash
 PLOVER_EXECUTOR_TARGET=127.0.0.1:50051 \
@@ -83,16 +86,26 @@ On macOS, grant the terminal or packaged Executor process access under
 Recording**. Without both permissions, mouse/keyboard actions or screenshots
 may fail even though the gRPC service is healthy.
 
+To connect the browser directly to a VNC session, start Planner with a target
+that speaks the RFB protocol. The browser connects to Planner's same-origin
+WebSocket endpoint, so no separate websockify process is required:
+
+```bash
+PLOVER_VNC_TARGET=127.0.0.1:5900 \
+PYTHONPATH=backend .venv/bin/python -m planner_service
+```
+
+The browser prompts for credentials only when the VNC server requests them.
+Credentials remain in component memory and are not sent to Planner storage.
+
 ## Integration Boundaries
 
 - Add provider-specific authentication and streaming to the
   OpenAI-compatible vision-model adapter if required by the deployment.
 - Route executor `failure_type` responses to
   `POST /api/runs/{run_id}/failures` to surface a system-driven IR proposal.
-- Replace the local Executor screenshot source behind the WebSocket with a VNC
-  gateway that serves 1024 x 768 frames and forwards user annotation metadata.
-- Connect a browser VNC client such as noVNC to `/api/runs/{run_id}/vnc`; the
-  Planner intentionally forwards VNC bytes without interpreting the protocol.
+- Replace the local Executor screenshot source behind the screenshot WebSocket
+  with deployment-specific capture infrastructure where necessary.
 - Move SQLite to Postgres or another shared database for multi-process
   deployment.
 - Add an explicit user-guidance flow to resume a safety-paused run after the

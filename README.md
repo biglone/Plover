@@ -46,4 +46,6 @@ Set `PLOVER_LLM_ENDPOINT` to use the XML-validated vision-model planner;
 authentication. Without it, the deterministic local planner is used.
 
 Set `PLOVER_VNC_TARGET=host:port` to expose a raw VNC WebSocket bridge at
-`/api/runs/{run_id}/vnc`.
+`/api/runs/{run_id}/vnc`. The React Live View uses noVNC to provide interactive
+desktop control, view-only access, credential prompts, and reconnect support.
+The screenshot annotation mode remains available when VNC is not configured.

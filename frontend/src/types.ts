@@ -51,6 +51,11 @@ export type RunState = {
     [key: string]: unknown;
   }[];
   screenshot_count: number;
+  live_view: {
+    image_url: string | null;
+    width: number;
+    height: number;
+  };
 };
 
 export type Box = {
@@ -59,4 +64,3 @@ export type Box = {
   width: number;
   height: number;
 };
-

@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from plover_core.models import Annotation, PlanVersion, Proposal
 from plover_core.plan import PlanInvariantError, approve_proposal, complete_next_step
+from planner_service.executor_gateway import ExecutorGateway, LocalExecutorGateway
 from planner_service.planner import DeterministicPlanner
 from planner_service.store import PlannerRepository, RunRecord, utc_now
 
@@ -56,9 +57,11 @@ def _annotation(request: AnnotationRequest | None) -> Annotation | None:
 def create_app(
     repository: PlannerRepository | None = None,
     planner: DeterministicPlanner | None = None,
+    executor: ExecutorGateway | None = None,
 ) -> FastAPI:
     repository = repository or PlannerRepository()
     planner = planner or DeterministicPlanner()
+    executor = executor or LocalExecutorGateway()
     app = FastAPI(title="Plover Planner Service", version="0.1.0")
 
     def get_run(run_id: str) -> RunRecord:
@@ -81,6 +84,8 @@ def create_app(
             versions={initial.id: initial},
             status="draft",
         )
+        observation = executor.observe(run.id)
+        run.set_live_view(observation.screenshot_png, width=observation.width, height=observation.height)
         run.add_event("plan_created", version_id=initial.id, cause=initial.cause.value)
         repository.create(run)
         return run.as_dict()
@@ -88,6 +93,15 @@ def create_app(
     @app.get("/api/runs/{run_id}")
     def get_run_state(run_id: str) -> dict[str, Any]:
         return get_run(run_id).as_dict()
+
+    @app.post("/api/runs/{run_id}/observe")
+    def observe_run(run_id: str) -> dict[str, Any]:
+        run = get_run(run_id)
+        observation = executor.observe(run.id)
+        run.set_live_view(observation.screenshot_png, width=observation.width, height=observation.height)
+        run.add_event("live_view_refreshed")
+        repository.save(run)
+        return run.as_dict()
 
     @app.post("/api/runs/{run_id}/replan", status_code=201)
     def propose_replan(run_id: str, request: ReplanRequest) -> dict[str, Any]:
@@ -183,6 +197,66 @@ def create_app(
             "step_completed",
             step_id=current.plan.pending[0].id if current.plan.pending else None,
             version_id=updated.id,
+        )
+        repository.save(run)
+        return run.as_dict()
+
+    @app.post("/api/runs/{run_id}/execute-next")
+    def execute_next(run_id: str) -> dict[str, Any]:
+        run = get_run(run_id)
+        current = run.active_version()
+        if not current.plan.pending:
+            run.status = "completed"
+            repository.save(run)
+            return run.as_dict()
+
+        step = current.plan.pending[0]
+        run.status = "running"
+        run.add_event("step_execution_started", step_id=step.id, instruction=step.instruction)
+        result = executor.execute_step(run.id, step)
+        if result.screenshot_png:
+            run.set_live_view(result.screenshot_png)
+            run.add_screenshot(run.live_view_data_url() or "")
+
+        if not result.ok:
+            proposal = planner.propose_repair(
+                current,
+                guidance=None,
+                annotation=None,
+                failure_type=result.failure_type,
+                rationale=(
+                    f"Execution failed with {result.failure_type}. "
+                    "A system-driven recovery proposal was generated automatically."
+                ),
+            )
+            run.proposals[proposal.id] = proposal
+            run.status = "paused"
+            run.add_event(
+                "step_execution_failed",
+                step_id=step.id,
+                failure_type=result.failure_type,
+                proposal_id=proposal.id,
+            )
+            repository.save(run)
+            return run.as_dict()
+
+        updated_plan = complete_next_step(current.plan, ui_summary=result.summary)
+        updated = PlanVersion(
+            id=f"version-{uuid4().hex[:10]}",
+            plan=updated_plan,
+            parent_id=current.id,
+            cause=current.cause,
+            created_at=utc_now(),
+            derived_constraints=current.derived_constraints,
+        )
+        run.versions[updated.id] = updated
+        run.active_version_id = updated.id
+        run.status = "completed" if not updated.plan.pending else "running"
+        run.add_event(
+            "step_executed",
+            step_id=step.id,
+            version_id=updated.id,
+            ui_summary=result.summary,
         )
         repository.save(run)
         return run.as_dict()

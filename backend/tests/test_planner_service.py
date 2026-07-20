@@ -3,6 +3,7 @@ import unittest
 from fastapi.testclient import TestClient
 
 from planner_service.app import create_app
+from planner_service.executor_gateway import LocalExecutorGateway
 from planner_service.store import PlannerRepository
 
 
@@ -11,7 +12,7 @@ class PlannerServiceTests(unittest.TestCase):
         from planner_service.planner import DeterministicPlanner
 
         self.repository = PlannerRepository()
-        self.client = TestClient(create_app(self.repository, DeterministicPlanner()))
+        self.client = TestClient(create_app(self.repository, DeterministicPlanner(), LocalExecutorGateway()))
 
     def test_create_run_and_replan_preserve_completed_history(self) -> None:
         created = self.client.post("/api/runs", json={"task": "Open a report"})
@@ -88,6 +89,27 @@ class PlannerServiceTests(unittest.TestCase):
         proposal = response.json()
         self.assertEqual(proposal["version"]["cause"], "system_driven_ir")
         self.assertIn("REPEAT_CLICK_MENU", proposal["rationale"])
+
+    def test_execute_next_step_updates_live_view_and_completed_step(self) -> None:
+        run = self.client.post("/api/runs", json={"task": "Open a report"}).json()
+
+        response = self.client.post(f"/api/runs/{run['id']}/execute-next")
+
+        self.assertEqual(response.status_code, 200)
+        updated = response.json()
+        self.assertEqual(updated["active_version"]["plan"]["completed"][0]["id"], "step-1")
+        self.assertTrue(updated["active_version"]["plan"]["completed"][0]["ui_summary"])
+        self.assertTrue(updated["live_view"]["image_url"].startswith("data:image/png;base64,"))
+
+    def test_observe_refreshes_live_view(self) -> None:
+        run = self.client.post("/api/runs", json={"task": "Open a report"}).json()
+
+        response = self.client.post(f"/api/runs/{run['id']}/observe")
+
+        self.assertEqual(response.status_code, 200)
+        observed = response.json()
+        self.assertEqual(observed["live_view"]["width"], 1024)
+        self.assertEqual(observed["live_view"]["height"], 768)
 
 
 if __name__ == "__main__":

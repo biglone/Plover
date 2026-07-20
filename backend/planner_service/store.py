@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from base64 import b64encode
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from threading import RLock
@@ -21,6 +22,9 @@ class RunRecord:
     proposals: dict[str, Proposal] = field(default_factory=dict)
     events: list[dict[str, Any]] = field(default_factory=list)
     screenshots: list[str] = field(default_factory=list)
+    latest_screenshot_png: bytes = b""
+    live_view_width: int = 1024
+    live_view_height: int = 768
     status: str = "draft"
 
     def active_version(self) -> PlanVersion:
@@ -30,6 +34,17 @@ class RunRecord:
         if screenshot:
             self.screenshots.append(screenshot)
             del self.screenshots[:-3]
+
+    def set_live_view(self, screenshot_png: bytes, *, width: int = 1024, height: int = 768) -> None:
+        self.latest_screenshot_png = screenshot_png
+        self.live_view_width = width
+        self.live_view_height = height
+
+    def live_view_data_url(self) -> str | None:
+        if not self.latest_screenshot_png:
+            return None
+        encoded = b64encode(self.latest_screenshot_png).decode("ascii")
+        return f"data:image/png;base64,{encoded}"
 
     def add_event(self, event_type: str, **payload: Any) -> None:
         self.events.append(
@@ -52,6 +67,11 @@ class RunRecord:
             "proposals": [proposal.as_dict() for proposal in self.proposals.values()],
             "events": list(self.events),
             "screenshot_count": len(self.screenshots),
+            "live_view": {
+                "image_url": self.live_view_data_url(),
+                "width": self.live_view_width,
+                "height": self.live_view_height,
+            },
         }
 
 
@@ -75,4 +95,3 @@ class PlannerRepository:
                 raise KeyError(run.id)
             self._runs[run.id] = run
         return run
-

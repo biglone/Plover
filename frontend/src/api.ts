@@ -70,3 +70,18 @@ export async function completeStep(runId: string): Promise<RunState> {
   );
 }
 
+export async function executeNext(runId: string): Promise<RunState> {
+  return parse<RunState>(
+    await fetch(`/api/runs/${runId}/execute-next`, {
+      method: "POST"
+    })
+  );
+}
+
+export async function refreshLiveView(runId: string): Promise<RunState> {
+  return parse<RunState>(
+    await fetch(`/api/runs/${runId}/observe`, {
+      method: "POST"
+    })
+  );
+}

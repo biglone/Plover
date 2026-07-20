@@ -1,9 +1,10 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   approveProposal,
-  completeStep,
   createRun,
+  executeNext,
   getRun,
+  refreshLiveView,
   replanWithAnnotation,
   replanWithGuidance
 } from "./api";
@@ -56,10 +57,12 @@ function StepList({ steps, title }: { steps: Step[]; title: string }) {
 
 function AnnotationLayer({
   box,
-  onChange
+  onChange,
+  imageUrl
 }: {
   box: Box | null;
   onChange: (next: Box | null) => void;
+  imageUrl: string | null;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const startRef = useRef<{ x: number; y: number } | null>(null);
@@ -101,15 +104,23 @@ function AnnotationLayer({
         startRef.current = null;
       }}
     >
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(202,111,71,0.18),_transparent_42%),linear-gradient(130deg,_rgba(53,86,74,0.08),_transparent_56%)]" />
+      {imageUrl ? (
+        <img
+          alt="Live view"
+          className="absolute inset-0 h-full w-full object-cover"
+          src={imageUrl}
+        />
+      ) : (
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(202,111,71,0.18),_transparent_42%),linear-gradient(130deg,_rgba(53,86,74,0.08),_transparent_56%)]" />
+      )}
+      <div className="absolute inset-0 bg-gradient-to-b from-white/10 via-transparent to-black/5" />
       <div className="absolute left-6 top-6 rounded-full border border-white/70 bg-white/75 px-3 py-1 text-xs uppercase tracking-[0.2em] text-moss shadow-sm">
         Live View 1024 x 768
       </div>
       <div className="absolute inset-x-10 bottom-10 rounded-[26px] border border-white/60 bg-white/72 p-5 shadow-lg backdrop-blur">
         <p className="font-display text-xl text-ink">Draw a box to anchor repair in pixel space</p>
         <p className="mt-2 max-w-xl text-sm leading-6 text-ink/65">
-          This mock live view stands in for the VNC feed. The annotation is sent to the planner as
-          a bounding box so only pending steps are revised.
+          The annotation is sent to the planner as a bounding box so only pending steps are revised.
         </p>
       </div>
       {box ? (
@@ -270,21 +281,6 @@ export default function App() {
     }
   }
 
-  async function handleCompleteStep() {
-    if (!run) {
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      setRun(await completeStep(run.id));
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Failed to complete step");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
     <main className="min-h-screen bg-canvas px-4 py-6 font-body text-ink md:px-8">
       <div className="mx-auto max-w-[1480px]">
@@ -327,13 +323,44 @@ export default function App() {
                   <p className="text-xs font-semibold uppercase tracking-[0.2em] text-clay">Planner chat</p>
                   <h2 className="mt-2 font-display text-2xl text-ink">Prompt, inspect, and revise</h2>
                 </div>
-                <button
-                  className="rounded-full border border-moss/15 bg-moss px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#26453b] disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={busy}
-                  onClick={handleCompleteStep}
-                >
-                  Complete next step
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    className="rounded-full border border-moss/15 bg-white px-4 py-2 text-sm font-semibold text-moss transition hover:bg-mist disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={!run || busy}
+                    onClick={async () => {
+                      if (!run) return;
+                      setBusy(true);
+                      setError(null);
+                      try {
+                        setRun(await refreshLiveView(run.id));
+                      } catch (requestError) {
+                        setError(requestError instanceof Error ? requestError.message : "Failed to refresh live view");
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  >
+                    Refresh live view
+                  </button>
+                  <button
+                    className="rounded-full border border-moss/15 bg-moss px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#26453b] disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={!run || busy}
+                    onClick={async () => {
+                      if (!run) return;
+                      setBusy(true);
+                      setError(null);
+                      try {
+                        setRun(await executeNext(run.id));
+                      } catch (requestError) {
+                        setError(requestError instanceof Error ? requestError.message : "Failed to execute next step");
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  >
+                    Execute next step
+                  </button>
+                </div>
               </div>
               <form className="space-y-4" onSubmit={handleCreateRun}>
                 <textarea
@@ -393,7 +420,11 @@ export default function App() {
                   {run?.active_version.cause ? formatCause(run.active_version.cause) : "no run"}
                 </span>
               </div>
-              <AnnotationLayer box={selectedBox} onChange={setSelectedBox} />
+              <AnnotationLayer
+                box={selectedBox}
+                onChange={setSelectedBox}
+                imageUrl={run?.live_view.image_url ?? null}
+              />
               <div className="mt-4 flex flex-col gap-3 md:flex-row">
                 <button
                   className="rounded-full bg-moss px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#28483e] disabled:cursor-not-allowed disabled:opacity-60"

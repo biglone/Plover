@@ -47,4 +47,3 @@ def approve_proposal(current: PlanVersion, proposal: Proposal) -> PlanVersion:
     if proposal.version.plan.completed_fingerprint() != current.plan.completed_fingerprint():
         raise PlanInvariantError("proposal attempts to mutate completed history")
     return replace(proposal.version, parent_id=current.id)
-

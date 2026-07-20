@@ -11,7 +11,7 @@ from plover_core.models import Annotation, PlanVersion, Proposal
 from plover_core.plan import PlanInvariantError, approve_proposal, complete_next_step
 from planner_service.executor_gateway import ExecutorGateway, GrpcExecutorGateway, LocalExecutorGateway
 from planner_service.planner import DeterministicPlanner
-from planner_service.store import PlannerRepository, RunRecord, utc_now
+from planner_service.store import PlannerRepository, RunRecord, SqlitePlannerRepository, create_repository, utc_now
 
 
 class CreateRunRequest(BaseModel):
@@ -56,11 +56,11 @@ def _annotation(request: AnnotationRequest | None) -> Annotation | None:
 
 
 def create_app(
-    repository: PlannerRepository | None = None,
+    repository: PlannerRepository | SqlitePlannerRepository | None = None,
     planner: DeterministicPlanner | None = None,
     executor: ExecutorGateway | None = None,
 ) -> FastAPI:
-    repository = repository or PlannerRepository()
+    repository = repository or create_repository()
     planner = planner or DeterministicPlanner()
     if executor is None:
         executor_target = os.getenv("PLOVER_EXECUTOR_TARGET")

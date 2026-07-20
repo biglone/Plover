@@ -3,10 +3,13 @@ from __future__ import annotations
 from base64 import b64encode
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import json
+import os
+import sqlite3
 from threading import RLock
 from typing import Any
 
-from plover_core.models import Annotation, PlanVersion, Proposal
+from plover_core.models import Annotation, ExecutionStatus, PlanState, PlanStep, PlanVersion, Proposal, ReplanCause
 
 
 def utc_now() -> str:
@@ -95,3 +98,166 @@ class PlannerRepository:
                 raise KeyError(run.id)
             self._runs[run.id] = run
         return run
+
+
+def _step_from_dict(data: dict[str, Any]) -> PlanStep:
+    return PlanStep(
+        id=data["id"],
+        instruction=data["instruction"],
+        status=ExecutionStatus(data["status"]),
+        ui_summary=data.get("ui_summary"),
+        failure_reason=data.get("failure_reason"),
+    )
+
+
+def _version_from_dict(data: dict[str, Any]) -> PlanVersion:
+    plan_data = data["plan"]
+    plan = PlanState(
+        completed=tuple(_step_from_dict(step) for step in plan_data["completed"]),
+        pending=tuple(_step_from_dict(step) for step in plan_data["pending"]),
+    )
+    return PlanVersion(
+        id=data["id"],
+        plan=plan,
+        parent_id=data.get("parent_id"),
+        cause=ReplanCause(data["cause"]),
+        created_at=data["created_at"],
+        derived_constraints=tuple(data.get("derived_constraints", ())),
+    )
+
+
+def _annotation_from_dict(data: dict[str, Any] | None) -> Annotation | None:
+    if not data:
+        return None
+    bbox = data["bbox"]
+    return Annotation(
+        screenshot=data["screenshot"],
+        x=bbox["x"],
+        y=bbox["y"],
+        width=bbox["width"],
+        height=bbox["height"],
+    )
+
+
+def _proposal_from_dict(data: dict[str, Any]) -> Proposal:
+    return Proposal(
+        id=data["id"],
+        base_version_id=data["base_version_id"],
+        version=_version_from_dict(data["version"]),
+        summary=data["summary"],
+        rationale=data["rationale"],
+        status=data.get("status", "pending"),
+        annotation=_annotation_from_dict(data.get("annotation")),
+    )
+
+
+class SqlitePlannerRepository:
+    """Durable repository for plan artifacts and execution provenance."""
+
+    def __init__(self, path: str) -> None:
+        self._path = path
+        self._lock = RLock()
+        if path != ":memory:":
+            os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        self._connection = sqlite3.connect(path, check_same_thread=False)
+        self._connection.row_factory = sqlite3.Row
+        self._connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS runs (
+                id TEXT PRIMARY KEY,
+                task TEXT NOT NULL,
+                active_version_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                versions_json TEXT NOT NULL,
+                proposals_json TEXT NOT NULL,
+                events_json TEXT NOT NULL,
+                screenshots_json TEXT NOT NULL,
+                latest_screenshot_png BLOB NOT NULL,
+                live_view_width INTEGER NOT NULL,
+                live_view_height INTEGER NOT NULL
+            )
+            """
+        )
+        self._connection.commit()
+
+    def _encode(self, run: RunRecord) -> tuple[Any, ...]:
+        return (
+            run.id,
+            run.task,
+            run.active_version_id,
+            run.status,
+            json.dumps({key: value.as_dict() for key, value in run.versions.items()}),
+            json.dumps({key: value.as_dict() for key, value in run.proposals.items()}),
+            json.dumps(run.events),
+            json.dumps(run.screenshots),
+            run.latest_screenshot_png,
+            run.live_view_width,
+            run.live_view_height,
+        )
+
+    def _decode(self, row: sqlite3.Row) -> RunRecord:
+        versions_data = json.loads(row["versions_json"])
+        proposals_data = json.loads(row["proposals_json"])
+        return RunRecord(
+            id=row["id"],
+            task=row["task"],
+            active_version_id=row["active_version_id"],
+            versions={key: _version_from_dict(value) for key, value in versions_data.items()},
+            proposals={key: _proposal_from_dict(value) for key, value in proposals_data.items()},
+            events=json.loads(row["events_json"]),
+            screenshots=json.loads(row["screenshots_json"]),
+            latest_screenshot_png=bytes(row["latest_screenshot_png"]),
+            live_view_width=row["live_view_width"],
+            live_view_height=row["live_view_height"],
+            status=row["status"],
+        )
+
+    def create(self, run: RunRecord) -> RunRecord:
+        with self._lock:
+            self._connection.execute(
+                """
+                INSERT INTO runs (
+                    id, task, active_version_id, status, versions_json,
+                    proposals_json, events_json, screenshots_json,
+                    latest_screenshot_png, live_view_width, live_view_height
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                self._encode(run),
+            )
+            self._connection.commit()
+        return run
+
+    def get(self, run_id: str) -> RunRecord | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT * FROM runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
+        return self._decode(row) if row else None
+
+    def save(self, run: RunRecord) -> RunRecord:
+        with self._lock:
+            cursor = self._connection.execute(
+                """
+                UPDATE runs SET
+                    task = ?, active_version_id = ?, status = ?,
+                    versions_json = ?, proposals_json = ?, events_json = ?,
+                    screenshots_json = ?, latest_screenshot_png = ?,
+                    live_view_width = ?, live_view_height = ?
+                WHERE id = ?
+                """,
+                self._encode(run)[1:] + (run.id,),
+            )
+            if cursor.rowcount != 1:
+                raise KeyError(run.id)
+            self._connection.commit()
+        return run
+
+    def close(self) -> None:
+        with self._lock:
+            self._connection.close()
+
+
+def create_repository() -> PlannerRepository | SqlitePlannerRepository:
+    path = os.getenv("PLOVER_DATABASE_PATH")
+    return SqlitePlannerRepository(path) if path else PlannerRepository()

@@ -11,6 +11,8 @@ This repository contains a runnable first vertical slice of the design in
 - Planner REST API for creating runs, requesting natural-language or annotated
   replans, approving proposals, and progressing steps.
 - Screenshot retention capped at the three most recent artifacts per run.
+- SQLite persistence for plans, proposals, timeline events, screenshots, and
+  the latest Live View frame.
 - Executor gRPC contract for pointer, keyboard, scroll, wait, and observation
   primitives.
 - Conservative system-driven non-progress detection using repeated canonical
@@ -41,6 +43,14 @@ PLOVER_EXECUTOR_TARGET=127.0.0.1:50051 \
 PYTHONPATH=backend .venv/bin/python -m planner_service
 ```
 
+Planner uses in-memory state by default. Set `PLOVER_DATABASE_PATH` to persist
+run artifacts across restarts:
+
+```bash
+PLOVER_DATABASE_PATH=./data/plover.sqlite3 \
+PYTHONPATH=backend .venv/bin/python -m planner_service
+```
+
 The Executor driver is selected independently:
 
 ```bash
@@ -61,5 +71,5 @@ may fail even though the gRPC service is healthy.
   `POST /api/runs/{run_id}/failures` to surface a system-driven IR proposal.
 - Provide a VNC gateway that serves 1024 x 768 screenshots to the frontend and
   forwards user annotation metadata.
-- Replace `PlannerRepository` with durable storage before multi-process
+- Move SQLite to Postgres or another shared database for multi-process
   deployment.

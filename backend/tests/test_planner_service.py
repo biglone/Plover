@@ -1,12 +1,14 @@
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from tempfile import TemporaryDirectory
 
 import grpc
 from fastapi.testclient import TestClient
 
 from planner_service.app import create_app
 from planner_service.executor_gateway import GrpcExecutorGateway, LocalExecutorGateway
-from planner_service.store import PlannerRepository
+from planner_service.planner import DeterministicPlanner
+from planner_service.store import PlannerRepository, SqlitePlannerRepository
 
 
 class PlannerServiceTests(unittest.TestCase):
@@ -146,6 +148,36 @@ class PlannerServiceTests(unittest.TestCase):
         finally:
             gateway.close()
             server.stop(0)
+
+    def test_sqlite_repository_restores_run_artifacts_after_reopen(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = f"{directory}/plover.sqlite3"
+            first_repository = SqlitePlannerRepository(path)
+            first_client = TestClient(
+                create_app(
+                    first_repository,
+                    DeterministicPlanner(),
+                    LocalExecutorGateway(),
+                )
+            )
+            created = first_client.post("/api/runs", json={"task": "Persist this run"}).json()
+            run_id = created["id"]
+            first_client.post(f"/api/runs/{run_id}/execute-next")
+            proposal = first_client.post(
+                f"/api/runs/{run_id}/replan",
+                json={"guidance": "Use the alternate visible option"},
+            ).json()
+            first_repository.close()
+
+            second_repository = SqlitePlannerRepository(path)
+            restored = second_repository.get(run_id)
+            self.assertIsNotNone(restored)
+            self.assertEqual(restored.task, "Persist this run")
+            self.assertEqual(len(restored.versions), 2)
+            self.assertIn(proposal["id"], restored.proposals)
+            self.assertTrue(restored.latest_screenshot_png)
+            self.assertGreaterEqual(len(restored.events), 3)
+            second_repository.close()
 
 
 if __name__ == "__main__":

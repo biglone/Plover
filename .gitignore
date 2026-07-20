@@ -3,9 +3,9 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+*.tsbuildinfo
 build/
 dist/
 node_modules/
 frontend/.env.local
 backend/.env
-

@@ -115,6 +115,18 @@ def _manual_status_blocker(run: RunRecord) -> str | None:
     return None
 
 
+def _manual_completion_blocker(run: RunRecord) -> str | None:
+    if run.status == "failed":
+        return "run is failed and the current step cannot be completed yet"
+    if run.active_safety_stop():
+        return "run is blocked by a safety stop"
+    if any(proposal.status == "pending" for proposal in run.proposals.values()):
+        return "run has pending proposals that must be resolved first"
+    if not run.active_version().plan.pending:
+        return "run has no pending steps left to complete"
+    return None
+
+
 def _planner_screenshots(run: RunRecord, annotation: Annotation | None = None) -> tuple[str, ...]:
     images = [image for image in run.screenshots if image]
     live_view = run.live_view_data_url()
@@ -474,6 +486,9 @@ def create_app(
     @app.post("/api/runs/{run_id}/steps/complete")
     def complete_step(run_id: str) -> dict[str, Any]:
         run = get_run(run_id)
+        blocker = _manual_completion_blocker(run)
+        if blocker is not None:
+            raise HTTPException(status_code=409, detail=blocker)
         current = run.active_version()
         updated_plan = complete_next_step(current.plan)
         updated = PlanVersion(

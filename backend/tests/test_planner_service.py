@@ -321,6 +321,33 @@ class PlannerServiceTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 422)
 
+    def test_manual_step_completion_requires_a_clear_path(self) -> None:
+        queued = self.client.post("/api/runs", json={"task": "Open a report"}).json()
+        self.client.post(
+            f"/api/runs/{queued['id']}/replan",
+            json={"guidance": "Choose the visible recovery option instead"},
+        )
+        blocked_by_proposals = self.client.post(f"/api/runs/{queued['id']}/steps/complete")
+        self.assertEqual(blocked_by_proposals.status_code, 409)
+        self.assertIn("pending proposals", blocked_by_proposals.json()["detail"])
+
+        sensitive = self.client.post(
+            "/api/runs",
+            json={"task": "Enter the password into the login form"},
+        ).json()
+        blocked_by_safety = self.client.post(f"/api/runs/{sensitive['id']}/steps/complete")
+        self.assertEqual(blocked_by_safety.status_code, 409)
+        self.assertIn("safety stop", blocked_by_safety.json()["detail"])
+
+        failed = self.client.post("/api/runs", json={"task": "Open a report"}).json()
+        self.client.post(
+            f"/api/runs/{failed['id']}/status",
+            json={"status": "failed", "reason": "Need to inspect the current screen"},
+        )
+        blocked_by_failure = self.client.post(f"/api/runs/{failed['id']}/steps/complete")
+        self.assertEqual(blocked_by_failure.status_code, 409)
+        self.assertIn("failed", blocked_by_failure.json()["detail"])
+
     def test_executor_failure_creates_system_driven_recovery_proposal(self) -> None:
         run = self.client.post("/api/runs", json={"task": "Navigate the dashboard"}).json()
 

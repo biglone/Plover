@@ -49,12 +49,12 @@ class RunRecord:
         encoded = b64encode(self.latest_screenshot_png).decode("ascii")
         return f"data:image/png;base64,{encoded}"
 
-    def add_event(self, event_type: str, **payload: Any) -> None:
+    def add_event(self, event_type: str, *, created_at: str | None = None, **payload: Any) -> None:
         self.events.append(
             {
                 "id": f"event-{len(self.events) + 1}",
                 "type": event_type,
-                "created_at": utc_now(),
+                "created_at": created_at or utc_now(),
                 **payload,
             }
         )

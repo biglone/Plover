@@ -155,6 +155,11 @@ class PlannerServiceTests(unittest.TestCase):
         self.assertEqual(updated["active_version"]["plan"]["completed"][0]["id"], "step-1")
         self.assertTrue(updated["active_version"]["plan"]["completed"][0]["ui_summary"])
         self.assertTrue(updated["live_view"]["image_url"].startswith("data:image/png;base64,"))
+        event_types = [event["type"] for event in updated["events"]]
+        self.assertIn("executor_action_started", event_types)
+        self.assertIn("executor_action_completed", event_types)
+        executor_event = next(event for event in updated["events"] if event["type"] == "executor_action_started")
+        self.assertTrue(executor_event["ui_summary"])
 
     def test_observe_refreshes_live_view(self) -> None:
         run = self.client.post("/api/runs", json={"task": "Open a report"}).json()
@@ -216,6 +221,10 @@ class PlannerServiceTests(unittest.TestCase):
             self.assertEqual(
                 response.json()["active_version"]["plan"]["completed"][0]["id"],
                 "step-1",
+            )
+            self.assertIn(
+                "executor_action_started",
+                [event["type"] for event in response.json()["events"]],
             )
             self.assertTrue(run["live_view"]["image_url"])
         finally:

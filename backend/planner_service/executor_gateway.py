@@ -20,6 +20,16 @@ class ExecutorResult:
     summary: str
     screenshot_png: bytes
     failure_type: str | None = None
+    events: tuple["ExecutorEvent", ...] = ()
+
+
+@dataclass(frozen=True)
+class ExecutorEvent:
+    kind: str
+    ui_summary: str
+    detail: str
+    created_at: str
+    step_id: str
 
 
 @dataclass(frozen=True)
@@ -57,6 +67,7 @@ class LocalExecutorGateway:
     def __init__(self, service: ExecutorService | None = None) -> None:
         self._drivers: dict[str, MockEnvironmentDriver] = {}
         self._services: dict[str, ExecutorService] = {}
+        self._event_offsets: dict[str, int] = {}
         if service is not None:
             self._services["__shared__"] = service
 
@@ -74,6 +85,27 @@ class LocalExecutorGateway:
     def _driver_for(self, run_id: str) -> MockEnvironmentDriver:
         self._service_for(run_id)
         return self._drivers[run_id]
+
+    def _take_events(self, run_id: str) -> tuple[ExecutorEvent, ...]:
+        events = list(
+            self._service_for(run_id).WatchEvents(
+                executor_pb2.WatchEventsRequest(run_id=run_id),
+                None,
+            )
+        )
+        offset = self._event_offsets.get(run_id, 0)
+        self._event_offsets[run_id] = len(events)
+        return tuple(
+            ExecutorEvent(
+                kind=event.kind,
+                ui_summary=event.ui_summary,
+                detail=event.detail,
+                created_at=event.created_at,
+                step_id=event.step_id,
+            )
+            for event in events[offset:]
+            if event.kind in {"action_started", "action_completed", "failure_detected"}
+        )
 
     def _actions_for(self, step: PlanStep) -> list[executor_pb2.Action]:
         instruction = step.instruction.lower()
@@ -119,6 +151,7 @@ class LocalExecutorGateway:
             summary=response.summary,
             screenshot_png=response.screenshot_png,
             failure_type=response.failure_type or None,
+            events=self._take_events(run_id),
         )
 
     def observe(self, run_id: str) -> LiveObservation:
@@ -171,6 +204,23 @@ class GrpcExecutorGateway:
     def __init__(self, target: str) -> None:
         self._channel = grpc.insecure_channel(target)
         self._stub = executor_pb2_grpc.ExecutorStub(self._channel)
+        self._event_offsets: dict[str, int] = {}
+
+    def _take_events(self, run_id: str) -> tuple[ExecutorEvent, ...]:
+        events = list(self._stub.WatchEvents(executor_pb2.WatchEventsRequest(run_id=run_id)))
+        offset = self._event_offsets.get(run_id, 0)
+        self._event_offsets[run_id] = len(events)
+        return tuple(
+            ExecutorEvent(
+                kind=event.kind,
+                ui_summary=event.ui_summary,
+                detail=event.detail,
+                created_at=event.created_at,
+                step_id=event.step_id,
+            )
+            for event in events[offset:]
+            if event.kind in {"action_started", "action_completed", "failure_detected"}
+        )
 
     def execute_step(self, run_id: str, step: PlanStep) -> ExecutorResult:
         response = self._stub.Execute(
@@ -185,6 +235,7 @@ class GrpcExecutorGateway:
             summary=response.summary,
             screenshot_png=response.screenshot_png,
             failure_type=response.failure_type or None,
+            events=self._take_events(run_id),
         )
 
     def observe(self, run_id: str) -> LiveObservation:

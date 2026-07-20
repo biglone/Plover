@@ -64,6 +64,18 @@ def _annotation(request: AnnotationRequest | None) -> Annotation | None:
     )
 
 
+def _record_executor_events(run: RunRecord, step_id: str, events: tuple[Any, ...]) -> None:
+    for event in events:
+        run.add_event(
+            f"executor_{event.kind}",
+            step_id=step_id,
+            executor_kind=event.kind,
+            ui_summary=event.ui_summary,
+            detail=event.detail,
+            created_at=event.created_at,
+        )
+
+
 def _planner_screenshots(run: RunRecord, annotation: Annotation | None = None) -> tuple[str, ...]:
     images = [image for image in run.screenshots if image]
     live_view = run.live_view_data_url()
@@ -409,6 +421,8 @@ def create_app(
         run.status = "running"
         run.add_event("step_execution_started", step_id=step.id, instruction=step.instruction)
         result = executor.execute_step(run.id, step)
+        if result.events:
+            _record_executor_events(run, step.id, result.events)
         if result.screenshot_png:
             run.set_live_view(result.screenshot_png)
             run.add_screenshot(run.live_view_data_url() or "")

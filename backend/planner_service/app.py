@@ -164,6 +164,7 @@ def create_app(
             return
         target_value = os.getenv("PLOVER_VNC_TARGET")
         if not target_value:
+            await websocket.accept()
             await websocket.close(code=1013, reason="PLOVER_VNC_TARGET is not configured")
             return
         try:

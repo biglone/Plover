@@ -1,9 +1,12 @@
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from os import environ
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 import grpc
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from planner_service.app import create_app
 from planner_service.executor_gateway import GrpcExecutorGateway, LocalExecutorGateway
@@ -125,6 +128,17 @@ class PlannerServiceTests(unittest.TestCase):
         self.assertEqual(frame["run_id"], run["id"])
         self.assertEqual(frame["width"], 1024)
         self.assertTrue(frame["image_url"].startswith("data:image/png;base64,"))
+
+    def test_vnc_websocket_closes_cleanly_when_target_is_missing(self) -> None:
+        run = self.client.post("/api/runs", json={"task": "Open a report"}).json()
+
+        with patch.dict(environ, {"PLOVER_VNC_TARGET": ""}):
+            with self.client.websocket_connect(f"/api/runs/{run['id']}/vnc") as websocket:
+                with self.assertRaises(WebSocketDisconnect) as closed:
+                    websocket.receive_bytes()
+
+        self.assertEqual(closed.exception.code, 1013)
+        self.assertEqual(closed.exception.reason, "PLOVER_VNC_TARGET is not configured")
 
     def test_remote_grpc_gateway_executes_against_executor_service(self) -> None:
         from executor_service import executor_pb2_grpc

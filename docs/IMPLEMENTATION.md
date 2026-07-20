@@ -13,7 +13,8 @@ This repository contains a runnable first vertical slice of the design in
 - Screenshot retention capped at the three most recent artifacts per run.
 - SQLite persistence for plans, proposals, timeline events, screenshots, and
   the latest Live View frame.
-- Safety stops for sensitive data and subjective ambiguity before execution.
+- Safety stops for sensitive data and subjective ambiguity before execution,
+  plus an explicit resume endpoint and UI for post-pause recovery.
 - WebSocket Live View stream at `/api/runs/{run_id}/live` with 1024 x 768
   screenshot frames consumed directly by the React interface.
 - Raw VNC WebSocket bridge at `/api/runs/{run_id}/vnc`, configured with
@@ -98,6 +99,12 @@ PYTHONPATH=backend .venv/bin/python -m planner_service
 The browser prompts for credentials only when the VNC server requests them.
 Credentials remain in component memory and are not sent to Planner storage.
 
+When Planner pauses for a real safety stop, the frontend exposes two recovery
+paths:
+
+- Resume after the user handled the blocked interaction outside the agent.
+- Submit a clarification that produces a localized pending-suffix proposal.
+
 ## Integration Boundaries
 
 - Add provider-specific authentication and streaming to the
@@ -108,5 +115,3 @@ Credentials remain in component memory and are not sent to Planner storage.
   with deployment-specific capture infrastructure where necessary.
 - Move SQLite to Postgres or another shared database for multi-process
   deployment.
-- Add an explicit user-guidance flow to resume a safety-paused run after the
-  sensitive or ambiguous input has been supplied outside the agent.

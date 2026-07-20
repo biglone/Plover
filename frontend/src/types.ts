@@ -50,6 +50,15 @@ export type RunState = {
     created_at: string;
     [key: string]: unknown;
   }[];
+  active_safety_stop: {
+    id: string;
+    type: string;
+    created_at: string;
+    category?: string | null;
+    reason?: string | null;
+    step_id?: string | null;
+    [key: string]: unknown;
+  } | null;
   screenshot_count: number;
   live_view: {
     image_url: string | null;

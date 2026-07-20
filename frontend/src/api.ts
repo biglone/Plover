@@ -6,7 +6,15 @@ const jsonHeaders = {
 
 async function parse<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    const body = await response.text();
+    let body = await response.text();
+    try {
+      const parsed = JSON.parse(body) as { detail?: unknown };
+      if (typeof parsed.detail === "string" && parsed.detail) {
+        body = parsed.detail;
+      }
+    } catch {
+      // Fall through to the raw body text.
+    }
     throw new Error(body || `Request failed: ${response.status}`);
   }
   return response.json() as Promise<T>;
@@ -32,6 +40,23 @@ export async function replanWithGuidance(runId: string, guidance: string): Promi
       method: "POST",
       headers: jsonHeaders,
       body: JSON.stringify({ guidance })
+    })
+  );
+}
+
+export async function resumeRun(
+  runId: string,
+  guidance: string,
+  handledOutside: boolean
+): Promise<Proposal> {
+  return parse<Proposal>(
+    await fetch(`/api/runs/${runId}/resume`, {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify({
+        guidance,
+        handled_outside: handledOutside
+      })
     })
   );
 }

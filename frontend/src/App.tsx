@@ -5,6 +5,7 @@ import {
   executeNext,
   getRun,
   refreshLiveView,
+  resumeRun,
   replanWithAnnotation,
   replanWithGuidance
 } from "./api";
@@ -16,6 +17,16 @@ const initialPrompt =
 
 function formatCause(cause: string): string {
   return cause.split("_").join(" ");
+}
+
+function resumePrompt(stop: RunState["active_safety_stop"]): string {
+  if (!stop) {
+    return "";
+  }
+  if (stop.category === "sensitive_data") {
+    return "The blocked input was entered manually outside the agent. Continue from the current screen.";
+  }
+  return "The user clarified the intended target. Continue from the current screen.";
 }
 
 function StepList({ steps, title }: { steps: Step[]; title: string }) {
@@ -198,6 +209,7 @@ export default function App() {
   const [liveImageUrl, setLiveImageUrl] = useState<string | null>(null);
   const [liveConnected, setLiveConnected] = useState(false);
   const [liveMode, setLiveMode] = useState<"remote" | "annotate">("remote");
+  const [resumeNote, setResumeNote] = useState("");
   const [vncState, setVncState] = useState<VncConnectionState>("disconnected");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -212,6 +224,7 @@ export default function App() {
       setLiveImageUrl(null);
       setLiveConnected(false);
       setLiveMode("remote");
+      setResumeNote("");
       return;
     }
     const timer = window.setInterval(async () => {
@@ -253,6 +266,10 @@ export default function App() {
       setLiveConnected(false);
     };
   }, [run?.id]);
+
+  useEffect(() => {
+    setResumeNote(run?.active_safety_stop ? resumePrompt(run.active_safety_stop) : "");
+  }, [run?.active_safety_stop?.id]);
 
   async function handleCreateRun(event: FormEvent) {
     event.preventDefault();
@@ -313,6 +330,26 @@ export default function App() {
       setSelectedBox(null);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Failed to approve proposal");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleResume(handledOutside: boolean) {
+    if (!run) {
+      return;
+    }
+    if (!handledOutside && !resumeNote.trim()) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const proposal = await resumeRun(run.id, resumeNote.trim(), handledOutside);
+      setPendingProposalId(proposal.id);
+      setRun(await getRun(run.id));
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Failed to resume run");
     } finally {
       setBusy(false);
     }
@@ -490,6 +527,39 @@ export default function App() {
                   Annotate screenshot
                 </button>
               </div>
+              {run?.active_safety_stop && !activeProposal ? (
+                <div className="mb-4 rounded-[26px] border border-amber-200 bg-amber-50 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-700">
+                    Safety pause
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-ink/75">
+                    {run.active_safety_stop.reason ?? "The run is waiting for user guidance."}
+                  </p>
+                  <textarea
+                    className="mt-4 min-h-24 w-full rounded-[22px] border border-amber-200 bg-white px-4 py-3 text-sm leading-6 text-ink outline-none transition focus:border-amber-300"
+                    value={resumeNote}
+                    onChange={(event) => setResumeNote(event.target.value)}
+                  />
+                  <div className="mt-4 flex flex-col gap-3 md:flex-row">
+                    <button
+                      className="rounded-full bg-amber-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={busy}
+                      onClick={() => handleResume(true)}
+                      type="button"
+                    >
+                      Resume after manual handling
+                    </button>
+                    <button
+                      className="rounded-full border border-amber-200 bg-white px-4 py-3 text-sm font-semibold text-amber-700 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={busy || !resumeNote.trim()}
+                      onClick={() => handleResume(false)}
+                      type="button"
+                    >
+                      Clarify and replan
+                    </button>
+                  </div>
+                </div>
+              ) : null}
               {liveMode === "remote" ? (
                 run ? (
                   <VncViewer runId={run.id} onConnectionChange={setVncState} />

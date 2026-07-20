@@ -4,6 +4,7 @@ import {
   createRun,
   executeNext,
   getRun,
+  manualEditPending,
   refreshLiveView,
   resumeRun,
   replanWithAnnotation,
@@ -246,6 +247,7 @@ function ProposalCard({
 export default function App() {
   const [task, setTask] = useState(initialPrompt);
   const [guidance, setGuidance] = useState("Choose the visible recovery option instead.");
+  const [manualEditText, setManualEditText] = useState("");
   const [run, setRun] = useState<RunState | null>(null);
   const [selectedBox, setSelectedBox] = useState<Box | null>(null);
   const [pendingProposalId, setPendingProposalId] = useState<string | null>(null);
@@ -261,6 +263,10 @@ export default function App() {
   const activeProposal = useMemo(
     () => run?.proposals.find((proposal) => proposal.status === "pending") ?? null,
     [run]
+  );
+  const manualEditSteps = useMemo(
+    () => manualEditText.split("\n").map((line) => line.trim()).filter(Boolean),
+    [manualEditText]
   );
 
   const currentSummary = useMemo(() => {
@@ -285,6 +291,7 @@ export default function App() {
       setLiveImageUrl(null);
       setLiveConnected(false);
       setLiveMode("remote");
+      setManualEditText("");
       setResumeNote("");
       setShowLogs(false);
       return;
@@ -332,6 +339,13 @@ export default function App() {
   useEffect(() => {
     setResumeNote(run?.active_safety_stop ? resumePrompt(run.active_safety_stop) : "");
   }, [run?.active_safety_stop?.id]);
+
+  useEffect(() => {
+    if (!run) {
+      return;
+    }
+    setManualEditText(run.active_version.plan.pending.map((step) => step.instruction).join("\n"));
+  }, [run?.active_version_id]);
 
   async function handleCreateRun(event: FormEvent) {
     event.preventDefault();
@@ -397,6 +411,23 @@ export default function App() {
       setSelectedBox(null);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Failed to approve proposal");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleManualEdit() {
+    if (!run || manualEditSteps.length === 0) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const proposal = await manualEditPending(run.id, manualEditSteps);
+      setPendingProposalId(proposal.id);
+      setRun(await getRun(run.id));
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Failed to create manual patch");
     } finally {
       setBusy(false);
     }
@@ -732,6 +763,51 @@ export default function App() {
                 >
                   Request replan
                 </button>
+              </div>
+            </section>
+
+            <section className="rounded-[30px] border border-moss/10 bg-white/72 p-5 shadow-panel md:p-6">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-clay">Manual pending edit</p>
+                  <h2 className="mt-2 font-display text-2xl text-ink">Directly rewrite the editable suffix</h2>
+                </div>
+                <span className="rounded-full bg-mist px-3 py-1 text-xs font-medium uppercase tracking-[0.2em] text-moss">
+                  {manualEditSteps.length} steps
+                </span>
+              </div>
+              <textarea
+                className="mt-4 min-h-32 w-full rounded-[24px] border border-moss/10 bg-canvas px-4 py-4 text-sm leading-7 text-ink outline-none transition focus:border-moss/30"
+                disabled={!run}
+                value={manualEditText}
+                onChange={(event) => setManualEditText(event.target.value)}
+              />
+              <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <p className="text-sm text-ink/62">
+                  One instruction per line. Completed history stays locked; approval applies only the rewritten pending suffix.
+                </p>
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <button
+                    className="rounded-full border border-moss/15 bg-white px-4 py-3 text-sm font-semibold text-moss transition hover:bg-mist disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={!run}
+                    onClick={() =>
+                      setManualEditText(
+                        run ? run.active_version.plan.pending.map((step) => step.instruction).join("\n") : ""
+                      )
+                    }
+                    type="button"
+                  >
+                    Reset to current pending
+                  </button>
+                  <button
+                    className="rounded-full bg-moss px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#28483e] disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={!run || busy || manualEditSteps.length === 0}
+                    onClick={handleManualEdit}
+                    type="button"
+                  >
+                    Create manual patch
+                  </button>
+                </div>
               </div>
             </section>
 

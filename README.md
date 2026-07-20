@@ -2,7 +2,8 @@
 
 Plover is a plan-centric GUI automation system. It externalizes plans as
 versioned artifacts so users can inspect execution, repair only pending work,
-and review system-driven recovery proposals.
+review system-driven recovery proposals, and directly rewrite the editable
+pending suffix before approval.
 
 ## Repository Layout
 

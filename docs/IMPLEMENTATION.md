@@ -9,7 +9,8 @@ This repository contains a runnable first vertical slice of the design in
 - Versioned plan revisions with parent links, causes, derived constraints, and
   approval before activation.
 - Planner REST API for creating runs, requesting natural-language or annotated
-  replans, approving proposals, and progressing steps.
+  replans, proposing direct manual edits, approving proposals, and progressing
+  steps.
 - Screenshot retention capped at the three most recent artifacts per run and
   forwarded as visual context for model-driven repair proposals.
 - SQLite persistence for plans, proposals, timeline events, screenshots, and
@@ -29,7 +30,8 @@ This repository contains a runnable first vertical slice of the design in
 - Ubuntu `xdotool`, Windows `pyautogui`, and macOS `pyautogui` driver adapters
   behind the same executor protocol.
 - React + Tailwind UI for plan inspection, live-view annotation, proposal
-  approval, progressive-disclosure logs, and Git-style version provenance.
+  approval, direct pending-step editing, progressive-disclosure logs, and
+  Git-style version provenance.
 - Executor action traces surfaced in the run log so the UI can expose both
   high-level summaries and detailed primitive-level events.
 

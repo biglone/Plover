@@ -44,6 +44,16 @@ export async function replanWithGuidance(runId: string, guidance: string): Promi
   );
 }
 
+export async function manualEditPending(runId: string, instructions: string[]): Promise<Proposal> {
+  return parse<Proposal>(
+    await fetch(`/api/runs/${runId}/manual-edit`, {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify({ instructions })
+    })
+  );
+}
+
 export async function resumeRun(
   runId: string,
   guidance: string,

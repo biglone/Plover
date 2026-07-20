@@ -61,14 +61,18 @@ export async function resumeRun(
   );
 }
 
-export async function replanWithAnnotation(runId: string, box: Box): Promise<Proposal> {
+export async function replanWithAnnotation(
+  runId: string,
+  box: Box,
+  screenshot: string
+): Promise<Proposal> {
   return parse<Proposal>(
     await fetch(`/api/runs/${runId}/replan`, {
       method: "POST",
       headers: jsonHeaders,
       body: JSON.stringify({
         annotation: {
-          screenshot: "live-view.png",
+          screenshot,
           x: Math.round(box.x),
           y: Math.round(box.y),
           width: Math.round(box.width),

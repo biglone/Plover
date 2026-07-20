@@ -15,8 +15,14 @@ import VncViewer, { type VncConnectionState } from "./VncViewer";
 const initialPrompt =
   "Transfer the visible values into the report form, verify the result, and stop if a password is required.";
 
+type RunEvent = RunState["events"][number];
+
 function formatCause(cause: string): string {
   return cause.split("_").join(" ");
+}
+
+function formatEventType(type: string): string {
+  return type.split("_").join(" ");
 }
 
 function resumePrompt(stop: RunState["active_safety_stop"]): string {
@@ -27,6 +33,40 @@ function resumePrompt(stop: RunState["active_safety_stop"]): string {
     return "The blocked input was entered manually outside the agent. Continue from the current screen.";
   }
   return "The user clarified the intended target. Continue from the current screen.";
+}
+
+function describeEvent(event: RunEvent): string {
+  if (event.type === "step_executed" && typeof event.ui_summary === "string" && event.ui_summary) {
+    return event.ui_summary;
+  }
+  if (event.type === "step_execution_started" && typeof event.instruction === "string") {
+    return `Working on: ${event.instruction}`;
+  }
+  if (event.type === "proposal_created") {
+    return "Waiting for proposal approval before continuing.";
+  }
+  if (event.type === "safety_resume_proposed") {
+    return "Prepared a localized continuation proposal from the safety pause.";
+  }
+  if (event.type === "safety_stop" && typeof event.reason === "string" && event.reason) {
+    return event.reason;
+  }
+  if (event.type === "execution_blocked" && typeof event.reason === "string" && event.reason) {
+    return event.reason;
+  }
+  return formatEventType(event.type);
+}
+
+function eventDetails(event: RunEvent): string[] {
+  const details: string[] = [];
+  const fields = ["step_id", "proposal_id", "failure_type", "category", "status", "version_id", "reason"];
+  for (const field of fields) {
+    const value = event[field];
+    if (typeof value === "string" && value) {
+      details.push(`${field.split("_").join(" ")}: ${value}`);
+    }
+  }
+  return details;
 }
 
 function StepList({ steps, title }: { steps: Step[]; title: string }) {
@@ -210,6 +250,7 @@ export default function App() {
   const [liveConnected, setLiveConnected] = useState(false);
   const [liveMode, setLiveMode] = useState<"remote" | "annotate">("remote");
   const [resumeNote, setResumeNote] = useState("");
+  const [showLogs, setShowLogs] = useState(false);
   const [vncState, setVncState] = useState<VncConnectionState>("disconnected");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -219,12 +260,30 @@ export default function App() {
     [run]
   );
 
+  const currentSummary = useMemo(() => {
+    if (!run) {
+      return "Create a run to start the execution stream.";
+    }
+    if (activeProposal) {
+      return "Waiting for proposal approval before execution can continue.";
+    }
+    if (run.active_safety_stop?.reason) {
+      return run.active_safety_stop.reason;
+    }
+    const latest = [...run.events].reverse().find((event) => event.type !== "live_view_refreshed");
+    if (latest) {
+      return describeEvent(latest);
+    }
+    return "The plan is ready for its first action.";
+  }, [activeProposal, run]);
+
   useEffect(() => {
     if (!run) {
       setLiveImageUrl(null);
       setLiveConnected(false);
       setLiveMode("remote");
       setResumeNote("");
+      setShowLogs(false);
       return;
     }
     const timer = window.setInterval(async () => {
@@ -305,10 +364,15 @@ export default function App() {
     if (!run || !selectedBox || selectedBox.width < 4 || selectedBox.height < 4) {
       return;
     }
+    const screenshot = liveImageUrl ?? run.live_view.image_url;
+    if (!screenshot) {
+      setError("A live screenshot is required before submitting an annotation.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      const proposal = await replanWithAnnotation(run.id, selectedBox);
+      const proposal = await replanWithAnnotation(run.id, selectedBox, screenshot);
       setPendingProposalId(proposal.id);
       setRun(await getRun(run.id));
     } catch (requestError) {
@@ -526,6 +590,57 @@ export default function App() {
                 >
                   Annotate screenshot
                 </button>
+              </div>
+              <div className="mb-4 rounded-[26px] border border-moss/10 bg-canvas/75 p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-clay">
+                      Action summary
+                    </p>
+                    <p className="mt-2 font-display text-lg leading-7 text-ink">{currentSummary}</p>
+                  </div>
+                  <button
+                    className="rounded-full border border-moss/15 bg-white px-4 py-2 text-sm font-semibold text-moss transition hover:bg-mist"
+                    onClick={() => setShowLogs((current) => !current)}
+                    type="button"
+                  >
+                    {showLogs ? "Hide detailed logs" : "Show detailed logs"}
+                  </button>
+                </div>
+                {showLogs && run ? (
+                  <div className="mt-4 max-h-72 space-y-3 overflow-y-auto pr-1">
+                    {[...run.events].reverse().map((event) => (
+                      <article
+                        key={event.id}
+                        className="rounded-2xl border border-moss/10 bg-white/85 px-4 py-3 shadow-sm"
+                      >
+                        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                          <div>
+                            <p className="text-sm font-semibold capitalize text-moss">
+                              {formatEventType(event.type)}
+                            </p>
+                            <p className="mt-1 text-sm leading-6 text-ink/70">{describeEvent(event)}</p>
+                          </div>
+                          <p className="text-xs uppercase tracking-[0.16em] text-ink/40">
+                            {new Date(event.created_at).toLocaleTimeString()}
+                          </p>
+                        </div>
+                        {eventDetails(event).length ? (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {eventDetails(event).map((detail) => (
+                              <span
+                                key={`${event.id}-${detail}`}
+                                className="rounded-full bg-canvas px-3 py-1 text-xs text-ink/60"
+                              >
+                                {detail}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+                      </article>
+                    ))}
+                  </div>
+                ) : null}
               </div>
               {run?.active_safety_stop && !activeProposal ? (
                 <div className="mb-4 rounded-[26px] border border-amber-200 bg-amber-50 p-4">

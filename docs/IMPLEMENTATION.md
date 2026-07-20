@@ -52,6 +52,21 @@ PLOVER_DATABASE_PATH=./data/plover.sqlite3 \
 PYTHONPATH=backend .venv/bin/python -m planner_service
 ```
 
+Set `PLOVER_LLM_ENDPOINT` to switch Planner to the OpenAI-compatible vision
+model adapter. `PLOVER_LLM_MODEL` defaults to `computer-use`, and
+`PLOVER_LLM_API_KEY` is optional for local endpoints:
+
+```bash
+PLOVER_LLM_ENDPOINT=http://127.0.0.1:9000/v1/chat/completions \
+PLOVER_LLM_MODEL=computer-use \
+PLOVER_LLM_API_KEY=replace-me \
+PYTHONPATH=backend .venv/bin/python -m planner_service
+```
+
+Model responses must contain the `<analysis>` and `<steps>` XML blocks. Invalid
+XML or a response that changes completed history is rejected and recorded
+without executing any action.
+
 The Executor driver is selected independently:
 
 ```bash
@@ -66,8 +81,8 @@ may fail even though the gRPC service is healthy.
 
 ## Integration Boundaries
 
-- Replace `DeterministicPlanner` with a vision-model adapter that returns the
-  XML plan schema from `plover_core.prompts`.
+- Add provider-specific authentication and streaming to the
+  OpenAI-compatible vision-model adapter if required by the deployment.
 - Route executor `failure_type` responses to
   `POST /api/runs/{run_id}/failures` to surface a system-driven IR proposal.
 - Provide a VNC gateway that serves 1024 x 768 screenshots to the frontend and

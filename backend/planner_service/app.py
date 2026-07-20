@@ -10,8 +10,9 @@ from pydantic import BaseModel, Field
 from plover_core.models import Annotation, PlanVersion, Proposal
 from plover_core.plan import PlanInvariantError, approve_proposal, complete_next_step
 from plover_core.safety import inspect_text
+from plover_core.xml_plan import PlanParseError
 from planner_service.executor_gateway import ExecutorGateway, GrpcExecutorGateway, LocalExecutorGateway
-from planner_service.planner import DeterministicPlanner
+from planner_service.model_planner import create_planner
 from planner_service.store import PlannerRepository, RunRecord, SqlitePlannerRepository, create_repository, utc_now
 
 
@@ -58,11 +59,11 @@ def _annotation(request: AnnotationRequest | None) -> Annotation | None:
 
 def create_app(
     repository: PlannerRepository | SqlitePlannerRepository | None = None,
-    planner: DeterministicPlanner | None = None,
+    planner: Any | None = None,
     executor: ExecutorGateway | None = None,
 ) -> FastAPI:
     repository = repository or create_repository()
-    planner = planner or DeterministicPlanner()
+    planner = planner or create_planner()
     if executor is None:
         executor_target = os.getenv("PLOVER_EXECUTOR_TARGET")
         executor = GrpcExecutorGateway(executor_target) if executor_target else LocalExecutorGateway()
@@ -80,7 +81,10 @@ def create_app(
 
     @app.post("/api/runs", status_code=201)
     def create_run(request: CreateRunRequest) -> dict[str, Any]:
-        initial = planner.create_initial(request.task)
+        try:
+            initial = planner.create_initial(request.task)
+        except PlanParseError as error:
+            raise HTTPException(status_code=422, detail=f"planner output rejected: {error}") from error
         safety = inspect_text(request.task)
         run = RunRecord(
             id=f"run-{uuid4().hex[:10]}",
@@ -136,13 +140,19 @@ def create_app(
         annotation = _annotation(request.annotation)
         if annotation:
             run.add_screenshot(annotation.screenshot)
-        proposal = planner.propose_repair(
-            run.active_version(),
-            guidance=request.guidance,
-            annotation=annotation,
-            failure_type=request.failure_type,
-            rationale=request.rationale,
-        )
+        try:
+            proposal = planner.propose_repair(
+                run.active_version(),
+                guidance=request.guidance,
+                annotation=annotation,
+                failure_type=request.failure_type,
+                rationale=request.rationale,
+            )
+        except PlanParseError as error:
+            run.status = "paused"
+            run.add_event("planner_output_rejected", reason=str(error))
+            repository.save(run)
+            raise HTTPException(status_code=422, detail=f"planner output rejected: {error}") from error
         run.proposals[proposal.id] = proposal
         run.status = "paused"
         run.add_event(

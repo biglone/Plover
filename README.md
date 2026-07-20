@@ -40,3 +40,7 @@ permissions for the terminal or Executor process.
 
 Set `PLOVER_DATABASE_PATH=./data/plover.sqlite3` to persist Planner runs,
 proposals, screenshots, and timeline events across service restarts.
+
+Set `PLOVER_LLM_ENDPOINT` to use the XML-validated vision-model planner;
+`PLOVER_LLM_MODEL` and `PLOVER_LLM_API_KEY` configure the model and optional
+authentication. Without it, the deterministic local planner is used.

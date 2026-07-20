@@ -59,6 +59,22 @@ class RunRecord:
             }
         )
 
+    def active_safety_stop(self) -> dict[str, Any] | None:
+        resolution_events = {
+            "proposal_created",
+            "safety_resume_proposed",
+            "proposal_approved",
+            "step_completed",
+            "step_executed",
+            "system_recovery_proposed",
+        }
+        for event in reversed(self.events):
+            if event["type"] in resolution_events:
+                return None
+            if event["type"] == "safety_stop":
+                return event
+        return None
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
@@ -70,6 +86,7 @@ class RunRecord:
             "proposals": [proposal.as_dict() for proposal in self.proposals.values()],
             "events": list(self.events),
             "screenshot_count": len(self.screenshots),
+            "active_safety_stop": self.active_safety_stop(),
             "live_view": {
                 "image_url": self.live_view_data_url(),
                 "width": self.live_view_width,

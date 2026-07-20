@@ -42,6 +42,11 @@ class FailureRequest(BaseModel):
     rationale: str | None = Field(default=None, max_length=2000)
 
 
+class ResumeRunRequest(BaseModel):
+    guidance: str | None = Field(default=None, max_length=2000)
+    handled_outside: bool = False
+
+
 class StatusRequest(BaseModel):
     status: str = Field(pattern="^(running|paused|failed)$")
     reason: str | None = Field(default=None, max_length=1000)
@@ -214,6 +219,73 @@ def create_app(
             "proposal_created",
             proposal_id=proposal.id,
             cause=proposal.version.cause.value,
+        )
+        repository.save(run)
+        return proposal.as_dict()
+
+    @app.post("/api/runs/{run_id}/resume", status_code=201)
+    def resume_safety_paused_run(run_id: str, request: ResumeRunRequest) -> dict[str, Any]:
+        run = get_run(run_id)
+        safety_stop = run.active_safety_stop()
+        if safety_stop is None:
+            raise HTTPException(status_code=409, detail="run is not waiting on a safety stop")
+
+        guidance = (request.guidance or "").strip()
+        if not request.handled_outside and not guidance:
+            raise HTTPException(
+                status_code=422,
+                detail="guidance is required unless the interaction was handled outside the agent",
+            )
+        if guidance:
+            safety = inspect_text(guidance)
+            if not safety.allowed:
+                run.add_event(
+                    "safety_resume_rejected",
+                    category=safety.category,
+                    reason=safety.reason,
+                )
+                repository.save(run)
+                raise HTTPException(status_code=409, detail=safety.reason)
+
+        if request.handled_outside:
+            resume_guidance = (
+                "Continue from the current screen after the blocked interaction was "
+                "completed outside the agent."
+            )
+            if guidance:
+                resume_guidance = f"{resume_guidance} User note: {guidance}"
+            rationale = (
+                "The user completed the sensitive or ambiguous interaction outside "
+                "the agent, so only the pending suffix needs to be rebuilt."
+            )
+        else:
+            resume_guidance = guidance
+            rationale = (
+                "The user clarified the safety-paused interaction, so only the "
+                "pending suffix needs to be rebuilt."
+            )
+
+        try:
+            proposal = planner.propose_repair(
+                run.active_version(),
+                guidance=resume_guidance,
+                annotation=None,
+                failure_type=None,
+                rationale=rationale,
+            )
+        except PlanParseError as error:
+            run.add_event("planner_output_rejected", reason=str(error))
+            repository.save(run)
+            raise HTTPException(status_code=422, detail=f"planner output rejected: {error}") from error
+
+        run.proposals[proposal.id] = proposal
+        run.status = "paused"
+        run.add_event(
+            "safety_resume_proposed",
+            proposal_id=proposal.id,
+            safety_event_id=safety_stop["id"],
+            category=safety_stop.get("category"),
+            handled_outside=request.handled_outside,
         )
         repository.save(run)
         return proposal.as_dict()

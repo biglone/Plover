@@ -212,11 +212,49 @@ class PlannerServiceTests(unittest.TestCase):
 
         self.assertEqual(run["status"], "paused")
         self.assertEqual(run["events"][-1]["type"], "safety_stop")
+        self.assertEqual(run["active_safety_stop"]["category"], "sensitive_data")
 
         blocked = self.client.post(f"/api/runs/{run['id']}/execute-next").json()
 
         self.assertEqual(blocked["status"], "paused")
         self.assertEqual(blocked["events"][-1]["type"], "execution_blocked")
+
+    def test_safety_paused_run_can_resume_after_external_handling(self) -> None:
+        run = self.client.post(
+            "/api/runs",
+            json={"task": "Enter the password into the login form"},
+        ).json()
+
+        response = self.client.post(
+            f"/api/runs/{run['id']}/resume",
+            json={
+                "handled_outside": True,
+                "guidance": "The password was entered manually outside the agent.",
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+        proposal = response.json()
+        self.assertEqual(proposal["version"]["cause"], "user_guidance")
+        self.assertIn("pending suffix", proposal["rationale"])
+
+        state = self.client.get(f"/api/runs/{run['id']}").json()
+        self.assertEqual(state["status"], "paused")
+        self.assertEqual(state["active_safety_stop"], None)
+        self.assertEqual(state["events"][-1]["type"], "safety_resume_proposed")
+
+    def test_safety_resume_requires_clarification_when_not_handled_outside(self) -> None:
+        run = self.client.post(
+            "/api/runs",
+            json={"task": "Choose whatever looks best"},
+        ).json()
+
+        response = self.client.post(
+            f"/api/runs/{run['id']}/resume",
+            json={"handled_outside": False},
+        )
+
+        self.assertEqual(response.status_code, 422)
 
     def test_sensitive_replan_is_rejected(self) -> None:
         run = self.client.post("/api/runs", json={"task": "Open the report"}).json()

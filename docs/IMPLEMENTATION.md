@@ -202,6 +202,10 @@ through the macOS driver without sending mouse or keyboard input. If the
 capture fails, grant the terminal or Executor process Screen Recording access
 and rerun the smoke check.
 
+`./scripts/run_macos_motion_smoke.sh` additionally validates Accessibility by
+moving the cursor to its current coordinate once. It does not click, type, or
+scroll.
+
 To connect the browser directly to a VNC session, start Planner with a target
 that speaks the RFB protocol. The browser connects to Planner's same-origin
 WebSocket endpoint, so no separate websockify process is required:

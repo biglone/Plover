@@ -6,7 +6,7 @@ import unittest
 from PIL import Image
 
 from executor_service.driver import MockEnvironmentDriver
-from executor_service.macos_smoke import MacOSSmokeError, run_macos_smoke
+from executor_service.macos_smoke import MacOSSmokeError, run_macos_motion_smoke, run_macos_smoke
 
 
 def _png(size: tuple[int, int]) -> bytes:
@@ -60,4 +60,26 @@ class MacOSSmokeTests(unittest.TestCase):
                 driver_factory=lambda platform_name: BrokenScreenshotDriver(),
                 accessibility_checker=lambda: True,
                 display_size=lambda: (1512, 982),
+            )
+
+    def test_moves_only_to_the_current_cursor_coordinate(self) -> None:
+        driver = MockEnvironmentDriver()
+
+        result = run_macos_motion_smoke(
+            system_name="Darwin",
+            driver_factory=lambda platform_name: driver,
+            accessibility_checker=lambda: True,
+            cursor_position=lambda: (713, 422),
+        )
+
+        self.assertEqual((result.cursor_x, result.cursor_y), (713, 422))
+        self.assertEqual(driver.actions, [("move", (713, 422))])
+
+    def test_motion_requires_accessibility(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "Accessibility"):
+            run_macos_motion_smoke(
+                system_name="Darwin",
+                driver_factory=lambda platform_name: MockEnvironmentDriver(),
+                accessibility_checker=lambda: False,
+                cursor_position=lambda: (713, 422),
             )

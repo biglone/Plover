@@ -68,6 +68,7 @@ npm --prefix frontend run build
 ./scripts/run_browser_safety_e2e.sh
 ./scripts/run_browser_annotation_e2e.sh
 ./scripts/run_macos_smoke.sh
+./scripts/run_macos_motion_smoke.sh
 ```
 
 The initial implementation uses a deterministic mock planner and executor by
@@ -103,6 +104,10 @@ on every GitHub pull request and push through `.github/workflows/quality-gate.ym
 Executor drivers are selected with `PLOVER_EXECUTOR_DRIVER=mock|linux|windows|macos`.
 macOS uses `pyautogui` and requires Accessibility and Screen Recording
 permissions for the terminal or Executor process.
+
+`./scripts/run_macos_motion_smoke.sh` additionally validates Accessibility by
+moving the cursor once to its current coordinate. It never clicks, types, or
+scrolls.
 
 Planner and Executor entry points now accept local bind settings through
 `PLOVER_PLANNER_HOST`, `PLOVER_PLANNER_PORT`, `PLOVER_EXECUTOR_BIND`, and

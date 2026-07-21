@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from io import BytesIO
+import argparse
 import platform
 import subprocess
 from typing import Callable
@@ -27,6 +28,12 @@ class MacOSSmokeResult:
     screenshot_height: int
 
 
+@dataclass(frozen=True)
+class MacOSMotionSmokeResult:
+    cursor_x: int
+    cursor_y: int
+
+
 def _accessibility_enabled() -> bool:
     completed = subprocess.run(
         ["/usr/bin/osascript", "-e", 'tell application "System Events" to return UI elements enabled'],
@@ -42,6 +49,13 @@ def _display_size() -> tuple[int, int]:
 
     size = pyautogui.size()
     return size.width, size.height
+
+
+def _cursor_position() -> tuple[int, int]:
+    import pyautogui
+
+    position = pyautogui.position()
+    return position.x, position.y
 
 
 def run_macos_smoke(
@@ -88,7 +102,35 @@ def run_macos_smoke(
     )
 
 
-def main() -> int:
+def run_macos_motion_smoke(
+    *,
+    system_name: str | None = None,
+    driver_factory: Callable[[str], EnvironmentDriver] = create_driver,
+    accessibility_checker: Callable[[], bool] = _accessibility_enabled,
+    cursor_position: Callable[[], tuple[int, int]] = _cursor_position,
+) -> MacOSMotionSmokeResult:
+    """Verify Accessibility by moving the cursor to its current coordinate."""
+    if (system_name or platform.system()) != "Darwin":
+        raise MacOSSmokeError("macOS smoke tests must run on a Darwin host")
+    if not accessibility_checker():
+        raise RuntimeError("macOS Accessibility is unavailable for System Events")
+
+    cursor_x, cursor_y = cursor_position()
+    if cursor_x < 0 or cursor_y < 0:
+        raise RuntimeError("macOS did not report a usable cursor coordinate")
+
+    driver_factory("macos").move(cursor_x, cursor_y)
+    return MacOSMotionSmokeResult(cursor_x=cursor_x, cursor_y=cursor_y)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Run a non-destructive macOS Executor smoke test.")
+    parser.add_argument(
+        "--verify-motion",
+        action="store_true",
+        help="move the cursor to its current coordinate once; does not click, type, or scroll",
+    )
+    arguments = parser.parse_args(argv)
     try:
         result = run_macos_smoke()
     except (MacOSSmokeError, RuntimeError, OSError) as error:
@@ -102,6 +144,16 @@ def main() -> int:
         print("[fail] Accessibility is unavailable for System Events")
         return 1
     print("[ok] Accessibility is available for System Events")
+    if arguments.verify_motion:
+        try:
+            motion = run_macos_motion_smoke()
+        except (MacOSSmokeError, RuntimeError, OSError) as error:
+            print(f"[fail] macOS motion smoke check failed: {error}")
+            return 1
+        print(
+            "[ok] Accessibility motion verified by moving to the current "
+            f"cursor coordinate: {motion.cursor_x}, {motion.cursor_y}"
+        )
     return 0
 
 

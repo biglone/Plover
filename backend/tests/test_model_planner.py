@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from plover_core.models import ExecutionStatus, PlanState, PlanStep, PlanVersion, ReplanCause
-from planner_service.model_planner import ModelPlanner, OpenAICompatibleChatModel, create_planner
+from planner_service.model_planner import HeaderBootstrapper, ModelPlanner, OpenAICompatibleChatModel, create_planner
 
 
 class FakeChatModel:
@@ -156,6 +156,54 @@ class ModelPlannerTests(unittest.TestCase):
         )
         self.assertIn('"stream": true', captured["payload"])
 
+    def test_openai_compatible_model_bootstraps_and_refreshes_auth_headers(self) -> None:
+        requests_seen: list[tuple[str, dict[str, str]]] = []
+        clock_value = [100.0]
+        session_responses = iter(
+            (
+                b'{"session":{"token":"boot-token-1","expires_in":120}}',
+                b'{"session":{"token":"boot-token-2","expires_in":120}}',
+            )
+        )
+
+        def opener(http_request, *, timeout=None):
+            headers = {key.lower(): value for key, value in http_request.header_items()}
+            requests_seen.append((http_request.full_url, headers))
+            if http_request.full_url.endswith("/session"):
+                return FakeHttpResponse(next(session_responses))
+            return FakeHttpResponse(
+                b'{"choices":[{"message":{"content":"<analysis>ok</analysis><steps><completed /><pending><step>Act</step></pending></steps>"}}]}'
+            )
+
+        bootstrapper = HeaderBootstrapper(
+            endpoint="https://example.test/session",
+            header_name="authorization",
+            header_prefix="Bearer ",
+            token_json_path="session.token",
+            expires_in_json_path="session.expires_in",
+            opener=opener,
+            clock=lambda: clock_value[0],
+        )
+        model = OpenAICompatibleChatModel(
+            endpoint="https://example.test/v1/chat/completions",
+            model="computer-use",
+            bootstrapper=bootstrapper,
+            opener=opener,
+        )
+
+        model.complete(system="sys", user="first")
+        clock_value[0] = 150.0
+        model.complete(system="sys", user="second")
+        clock_value[0] = 205.0
+        model.complete(system="sys", user="third")
+
+        session_calls = [headers for url, headers in requests_seen if url.endswith("/session")]
+        model_calls = [headers for url, headers in requests_seen if url.endswith("/v1/chat/completions")]
+        self.assertEqual(len(session_calls), 2)
+        self.assertEqual(model_calls[0]["authorization"], "Bearer boot-token-1")
+        self.assertEqual(model_calls[1]["authorization"], "Bearer boot-token-1")
+        self.assertEqual(model_calls[2]["authorization"], "Bearer boot-token-2")
+
     def test_create_planner_reads_stream_and_header_configuration_from_environment(self) -> None:
         with patch.dict(
             "os.environ",
@@ -179,12 +227,57 @@ class ModelPlannerTests(unittest.TestCase):
         self.assertEqual(planner._model.extra_headers, {"x-deployment": "staging"})
         self.assertTrue(planner._model.stream)
 
+    def test_create_planner_reads_bootstrap_configuration_from_environment(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "PLOVER_LLM_ENDPOINT": "https://example.test/v1/chat/completions",
+                "PLOVER_LLM_BOOTSTRAP_ENDPOINT": "https://example.test/session",
+                "PLOVER_LLM_BOOTSTRAP_METHOD": "post",
+                "PLOVER_LLM_BOOTSTRAP_HEADERS": '{"x-bootstrap":"true"}',
+                "PLOVER_LLM_BOOTSTRAP_BODY": '{"grant_type":"client_credentials"}',
+                "PLOVER_LLM_BOOTSTRAP_HEADER_NAME": "x-session-token",
+                "PLOVER_LLM_BOOTSTRAP_HEADER_PREFIX": "Token ",
+                "PLOVER_LLM_BOOTSTRAP_TOKEN_PATH": "session.token",
+                "PLOVER_LLM_BOOTSTRAP_EXPIRES_IN_PATH": "session.expires_in",
+                "PLOVER_LLM_BOOTSTRAP_REFRESH_SKEW_SECONDS": "15",
+            },
+            clear=False,
+        ):
+            planner = create_planner()
+
+        self.assertIsInstance(planner, ModelPlanner)
+        self.assertIsInstance(planner._model.bootstrapper, HeaderBootstrapper)
+        bootstrapper = planner._model.bootstrapper
+        self.assertEqual(bootstrapper.endpoint, "https://example.test/session")
+        self.assertEqual(bootstrapper.method, "POST")
+        self.assertEqual(bootstrapper.headers, {"x-bootstrap": "true"})
+        self.assertEqual(bootstrapper.body, '{"grant_type":"client_credentials"}')
+        self.assertEqual(bootstrapper.header_name, "x-session-token")
+        self.assertEqual(bootstrapper.header_prefix, "Token ")
+        self.assertEqual(bootstrapper.token_json_path, "session.token")
+        self.assertEqual(bootstrapper.expires_in_json_path, "session.expires_in")
+        self.assertEqual(bootstrapper.refresh_skew_seconds, 15)
+
     def test_create_planner_rejects_non_object_extra_headers(self) -> None:
         with patch.dict(
             "os.environ",
             {
                 "PLOVER_LLM_ENDPOINT": "https://example.test/v1/chat/completions",
                 "PLOVER_LLM_EXTRA_HEADERS": '["x-deployment"]',
+            },
+            clear=False,
+        ):
+            with self.assertRaises(RuntimeError):
+                create_planner()
+
+    def test_create_planner_rejects_non_object_bootstrap_headers(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "PLOVER_LLM_ENDPOINT": "https://example.test/v1/chat/completions",
+                "PLOVER_LLM_BOOTSTRAP_ENDPOINT": "https://example.test/session",
+                "PLOVER_LLM_BOOTSTRAP_HEADERS": '["x-bootstrap"]',
             },
             clear=False,
         ):

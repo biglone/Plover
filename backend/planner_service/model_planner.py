@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Protocol
 from urllib import request
@@ -18,6 +19,77 @@ class ChatModel(Protocol):
     def complete(self, *, system: str, user: str, image_urls: tuple[str, ...] = ()) -> str: ...
 
 
+def _resolve_json_path(data: Any, path: str) -> Any:
+    if path in {"", "."}:
+        return data
+    current = data
+    for part in path.split("."):
+        if isinstance(current, dict):
+            if part not in current:
+                raise RuntimeError(f"JSON path '{path}' could not be resolved")
+            current = current[part]
+            continue
+        if isinstance(current, list) and part.isdigit():
+            index = int(part)
+            if index >= len(current):
+                raise RuntimeError(f"JSON path '{path}' could not be resolved")
+            current = current[index]
+            continue
+        raise RuntimeError(f"JSON path '{path}' could not be resolved")
+    return current
+
+
+@dataclass
+class HeaderBootstrapper:
+    endpoint: str
+    header_name: str = "Authorization"
+    header_prefix: str = "Bearer "
+    token_json_path: str = "access_token"
+    expires_in_json_path: str | None = "expires_in"
+    method: str = "GET"
+    headers: dict[str, str] = field(default_factory=dict)
+    body: str | None = None
+    refresh_skew_seconds: float = 30
+    timeout_seconds: float = 30
+    opener: Callable[..., Any] = request.urlopen
+    clock: Callable[[], float] = time.monotonic
+    _cached_header_value: str | None = field(default=None, init=False, repr=False)
+    _expires_at: float | None = field(default=None, init=False, repr=False)
+
+    def _bootstrap_request(self) -> request.Request:
+        data = self.body.encode("utf-8") if self.body is not None else None
+        return request.Request(
+            self.endpoint,
+            data=data,
+            headers=self.headers,
+            method=self.method,
+        )
+
+    def resolve_header(self) -> tuple[str, str]:
+        now = self.clock()
+        if self._cached_header_value and (self._expires_at is None or now < self._expires_at):
+            return self.header_name, self._cached_header_value
+
+        with self.opener(self._bootstrap_request(), timeout=self.timeout_seconds) as response:
+            body = json.loads(response.read().decode("utf-8"))
+        token = _resolve_json_path(body, self.token_json_path)
+        if not isinstance(token, str) or not token:
+            raise RuntimeError("bootstrap response did not contain a usable token")
+        self._cached_header_value = f"{self.header_prefix}{token}"
+
+        expires_at: float | None = None
+        if self.expires_in_json_path:
+            expires_in = _resolve_json_path(body, self.expires_in_json_path)
+            if expires_in is not None:
+                try:
+                    expires_seconds = float(expires_in)
+                except (TypeError, ValueError) as error:
+                    raise RuntimeError("bootstrap response did not contain a numeric expiry") from error
+                expires_at = now + max(0.0, expires_seconds - self.refresh_skew_seconds)
+        self._expires_at = expires_at
+        return self.header_name, self._cached_header_value
+
+
 @dataclass
 class OpenAICompatibleChatModel:
     endpoint: str
@@ -29,12 +101,17 @@ class OpenAICompatibleChatModel:
     stream: bool = False
     timeout_seconds: float = 90
     opener: Callable[..., Any] = request.urlopen
+    bootstrapper: HeaderBootstrapper | None = None
 
     def _headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}
+        headers.update(self.extra_headers)
+        if self.bootstrapper is not None:
+            header_name, header_value = self.bootstrapper.resolve_header()
+            headers[header_name] = header_value
+            return headers
         if self.api_key:
             headers[self.api_key_header] = f"{self.api_key_prefix}{self.api_key}"
-        headers.update(self.extra_headers)
         return headers
 
     @staticmethod
@@ -239,6 +316,31 @@ def create_planner() -> Any:
         if not isinstance(parsed_headers, dict):
             raise RuntimeError("PLOVER_LLM_EXTRA_HEADERS must be a JSON object")
         extra_headers = {str(key): str(value) for key, value in parsed_headers.items()}
+    bootstrapper: HeaderBootstrapper | None = None
+    bootstrap_endpoint = os.getenv("PLOVER_LLM_BOOTSTRAP_ENDPOINT")
+    if bootstrap_endpoint:
+        bootstrap_headers: dict[str, str] = {}
+        raw_bootstrap_headers = os.getenv("PLOVER_LLM_BOOTSTRAP_HEADERS")
+        if raw_bootstrap_headers:
+            parsed_bootstrap_headers = json.loads(raw_bootstrap_headers)
+            if not isinstance(parsed_bootstrap_headers, dict):
+                raise RuntimeError("PLOVER_LLM_BOOTSTRAP_HEADERS must be a JSON object")
+            bootstrap_headers = {str(key): str(value) for key, value in parsed_bootstrap_headers.items()}
+        bootstrap_method = os.getenv("PLOVER_LLM_BOOTSTRAP_METHOD")
+        bootstrap_body = os.getenv("PLOVER_LLM_BOOTSTRAP_BODY")
+        if not bootstrap_method:
+            bootstrap_method = "POST" if bootstrap_body is not None else "GET"
+        bootstrapper = HeaderBootstrapper(
+            endpoint=bootstrap_endpoint,
+            header_name=os.getenv("PLOVER_LLM_BOOTSTRAP_HEADER_NAME", os.getenv("PLOVER_LLM_API_KEY_HEADER", "Authorization")),
+            header_prefix=os.getenv("PLOVER_LLM_BOOTSTRAP_HEADER_PREFIX", os.getenv("PLOVER_LLM_API_KEY_PREFIX", "Bearer ")),
+            token_json_path=os.getenv("PLOVER_LLM_BOOTSTRAP_TOKEN_PATH", "access_token"),
+            expires_in_json_path=os.getenv("PLOVER_LLM_BOOTSTRAP_EXPIRES_IN_PATH", "expires_in"),
+            method=bootstrap_method.upper(),
+            headers=bootstrap_headers,
+            body=bootstrap_body,
+            refresh_skew_seconds=float(os.getenv("PLOVER_LLM_BOOTSTRAP_REFRESH_SKEW_SECONDS", "30")),
+        )
     model = OpenAICompatibleChatModel(
         endpoint=endpoint,
         model=os.getenv("PLOVER_LLM_MODEL", "computer-use"),
@@ -247,5 +349,6 @@ def create_planner() -> Any:
         api_key_prefix=os.getenv("PLOVER_LLM_API_KEY_PREFIX", "Bearer "),
         extra_headers=extra_headers,
         stream=os.getenv("PLOVER_LLM_STREAM", "").lower() in {"1", "true", "yes", "on"},
+        bootstrapper=bootstrapper,
     )
     return ModelPlanner(model)

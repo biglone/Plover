@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
-from typing import Any, Protocol
+from dataclasses import dataclass, field
+from typing import Any, Callable, Protocol
 from urllib import request
 from uuid import uuid4
 
@@ -23,7 +23,80 @@ class OpenAICompatibleChatModel:
     endpoint: str
     model: str
     api_key: str | None = None
+    api_key_header: str = "Authorization"
+    api_key_prefix: str = "Bearer "
+    extra_headers: dict[str, str] = field(default_factory=dict)
+    stream: bool = False
     timeout_seconds: float = 90
+    opener: Callable[..., Any] = request.urlopen
+
+    def _headers(self) -> dict[str, str]:
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers[self.api_key_header] = f"{self.api_key_prefix}{self.api_key}"
+        headers.update(self.extra_headers)
+        return headers
+
+    @staticmethod
+    def _extract_choice_content(choice: dict[str, Any]) -> str | None:
+        for key in ("message", "delta"):
+            payload = choice.get(key)
+            if isinstance(payload, dict):
+                content = payload.get("content")
+                if isinstance(content, str) and content:
+                    return content
+        content = choice.get("content")
+        if isinstance(content, str) and content:
+            return content
+        return None
+
+    def _extract_response_content(self, body: dict[str, Any]) -> str:
+        try:
+            choice = body["choices"][0]
+        except (KeyError, IndexError, TypeError) as error:
+            raise RuntimeError("model response did not contain choices[0]") from error
+        if not isinstance(choice, dict):
+            raise RuntimeError("model response did not contain a structured choice")
+        content = self._extract_choice_content(choice)
+        if content is None:
+            raise RuntimeError("model response did not contain choices[0].message.content")
+        return content
+
+    def _read_stream_response(self, response: Any) -> str:
+        chunks: list[str] = []
+        raw_lines: list[str] = []
+        for raw_line in response:
+            line = raw_line.decode("utf-8").strip()
+            if not line:
+                continue
+            raw_lines.append(line)
+            if not line.startswith("data:"):
+                continue
+            data = line.removeprefix("data:").strip()
+            if data == "[DONE]":
+                break
+            event = json.loads(data)
+            try:
+                choice = event["choices"][0]
+            except (KeyError, IndexError, TypeError):
+                continue
+            if not isinstance(choice, dict):
+                continue
+            content = self._extract_choice_content(choice)
+            if content:
+                chunks.append(content)
+        if chunks:
+            return "".join(chunks)
+        raw_text = "\n".join(raw_lines).strip()
+        if not raw_text:
+            raise RuntimeError("model response did not contain streamed content")
+        try:
+            body = json.loads(raw_text)
+        except json.JSONDecodeError as error:
+            raise RuntimeError("model response did not contain streamed content") from error
+        if not isinstance(body, dict):
+            raise RuntimeError("model response did not contain streamed content")
+        return self._extract_response_content(body)
 
     def complete(self, *, system: str, user: str, image_urls: tuple[str, ...] = ()) -> str:
         user_content: str | list[dict[str, Any]] = user
@@ -46,21 +119,21 @@ class OpenAICompatibleChatModel:
             ],
             "temperature": 0,
         }
-        headers = {"Content-Type": "application/json"}
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
+        if self.stream:
+            payload["stream"] = True
         http_request = request.Request(
             self.endpoint,
             data=json.dumps(payload).encode("utf-8"),
-            headers=headers,
+            headers=self._headers(),
             method="POST",
         )
-        with request.urlopen(http_request, timeout=self.timeout_seconds) as response:
+        with self.opener(http_request, timeout=self.timeout_seconds) as response:
+            if self.stream:
+                return self._read_stream_response(response)
             body = json.loads(response.read().decode("utf-8"))
-        try:
-            return body["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, TypeError) as error:
-            raise RuntimeError("model response did not contain choices[0].message.content") from error
+        if not isinstance(body, dict):
+            raise RuntimeError("model response did not contain a JSON object")
+        return self._extract_response_content(body)
 
 
 def _plan_context(plan: PlanVersion) -> str:
@@ -159,9 +232,20 @@ def create_planner() -> Any:
         from planner_service.planner import DeterministicPlanner
 
         return DeterministicPlanner()
+    extra_headers: dict[str, str] = {}
+    raw_extra_headers = os.getenv("PLOVER_LLM_EXTRA_HEADERS")
+    if raw_extra_headers:
+        parsed_headers = json.loads(raw_extra_headers)
+        if not isinstance(parsed_headers, dict):
+            raise RuntimeError("PLOVER_LLM_EXTRA_HEADERS must be a JSON object")
+        extra_headers = {str(key): str(value) for key, value in parsed_headers.items()}
     model = OpenAICompatibleChatModel(
         endpoint=endpoint,
         model=os.getenv("PLOVER_LLM_MODEL", "computer-use"),
         api_key=os.getenv("PLOVER_LLM_API_KEY"),
+        api_key_header=os.getenv("PLOVER_LLM_API_KEY_HEADER", "Authorization"),
+        api_key_prefix=os.getenv("PLOVER_LLM_API_KEY_PREFIX", "Bearer "),
+        extra_headers=extra_headers,
+        stream=os.getenv("PLOVER_LLM_STREAM", "").lower() in {"1", "true", "yes", "on"},
     )
     return ModelPlanner(model)

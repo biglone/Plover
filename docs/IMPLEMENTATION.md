@@ -36,6 +36,8 @@ This repository contains a runnable first vertical slice of the design in
   primitives.
 - Conservative system-driven non-progress detection using repeated canonical
   actions and screenshot dHash stability.
+- Executor failures create a versioned plan state with the current step marked
+  failed, then keep the run paused until a repair proposal replaces that step.
 - Ubuntu `xdotool`, Windows `pyautogui`, and macOS `pyautogui` driver adapters
   behind the same executor protocol.
 - React + Tailwind UI for plan inspection, live-view annotation, proposal

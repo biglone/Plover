@@ -14,6 +14,7 @@ discarded, or superseded without mutating completed history.
 - `backend/executor_service/`: executor abstractions and gRPC contract.
 - `frontend/`: React + Vite agentic interface.
 - `docs/`: requirements and the referenced paper.
+- `scripts/`: local environment doctor and launcher helpers.
 
 ## Development
 
@@ -21,15 +22,24 @@ The backend targets Python 3.10+. Create a virtual environment and install
 `backend/requirements.txt`, then run:
 
 ```bash
-PYTHONPATH=backend python -m unittest discover -s backend/tests -v
+cp .env.example .env
+python3 -m venv .venv
+.venv/bin/pip install -r backend/requirements.txt httpx
+npm --prefix frontend install
+
+./scripts/dev_doctor.sh
+./scripts/start_local.sh
 ```
 
-The frontend uses Node.js and Vite:
+`start_local.sh` loads `.env` and `.env.local`, starts Planner, Executor, and
+the Vite frontend together, and writes logs under `.plover-dev/`. Stop the
+whole local stack with `Ctrl-C`.
+
+You can still run checks manually:
 
 ```bash
-cd frontend
-npm install
-npm run build
+PYTHONPATH=backend .venv/bin/python -m unittest discover -s backend/tests -v
+npm --prefix frontend run build
 ```
 
 The initial implementation uses a deterministic mock planner and executor by
@@ -39,6 +49,11 @@ the integration seam for a vision-capable model and a real VNC environment.
 Executor drivers are selected with `PLOVER_EXECUTOR_DRIVER=mock|linux|windows|macos`.
 macOS uses `pyautogui` and requires Accessibility and Screen Recording
 permissions for the terminal or Executor process.
+
+Planner and Executor entry points now accept local bind settings through
+`PLOVER_PLANNER_HOST`, `PLOVER_PLANNER_PORT`, `PLOVER_EXECUTOR_BIND`, and
+`PLOVER_EXECUTOR_PORT`. The Vite proxy reads `PLOVER_PLANNER_ORIGIN` when you
+need the frontend to point at a non-default Planner address.
 
 Set `PLOVER_DATABASE_PATH=./data/plover.sqlite3` to persist Planner runs,
 proposals, screenshots, and timeline events across service restarts.

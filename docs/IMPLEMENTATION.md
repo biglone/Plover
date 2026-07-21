@@ -47,12 +47,24 @@ This repository contains a runnable first vertical slice of the design in
 ## Run Locally
 
 ```bash
+cp .env.example .env
 python3 -m venv .venv
 .venv/bin/pip install -r backend/requirements.txt httpx
-PYTHONPATH=backend .venv/bin/python -m unittest discover -s backend/tests -v
+npm --prefix frontend install
 
-PYTHONPATH=backend .venv/bin/python -m planner_service
-cd frontend && npm install && npm run dev
+./scripts/dev_doctor.sh
+./scripts/start_local.sh
+```
+
+The launcher reads `.env` and `.env.local`, starts Planner, Executor, and the
+frontend together, and writes service logs to `.plover-dev/`. Press `Ctrl-C`
+to stop the local stack.
+
+You can still run the checks manually:
+
+```bash
+PYTHONPATH=backend .venv/bin/python -m unittest discover -s backend/tests -v
+npm --prefix frontend run build
 ```
 
 The default planner and executor are deterministic local implementations so
@@ -132,6 +144,11 @@ The Executor driver is selected independently:
 PLOVER_EXECUTOR_DRIVER=macos \
 PYTHONPATH=backend .venv/bin/python -m executor_service
 ```
+
+Planner and Executor bind settings can be overridden with
+`PLOVER_PLANNER_HOST`, `PLOVER_PLANNER_PORT`, `PLOVER_EXECUTOR_BIND`, and
+`PLOVER_EXECUTOR_PORT`. The local Vite proxy reads `PLOVER_PLANNER_ORIGIN` if
+the frontend should target a non-default Planner address.
 
 On macOS, grant the terminal or packaged Executor process access under
 **System Settings -> Privacy & Security -> Accessibility** and **Screen

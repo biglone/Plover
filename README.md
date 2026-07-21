@@ -60,6 +60,7 @@ npm --prefix frontend run build
 ./scripts/run_browser_e2e.sh
 ./scripts/run_browser_recovery_e2e.sh
 ./scripts/run_browser_safety_e2e.sh
+./scripts/run_browser_annotation_e2e.sh
 ```
 
 The initial implementation uses a deterministic mock planner and executor by
@@ -83,6 +84,10 @@ verify the automatic recovery proposal flow end to end.
 `./scripts/run_browser_safety_e2e.sh` covers the safety pause path where a
 sensitive task is resumed after the operator handles the blocked interaction
 outside the agent.
+
+`./scripts/run_browser_annotation_e2e.sh` covers screenshot-grounded repair:
+draw a bounding box, generate an annotation proposal, approve it, and execute
+the repaired pending suffix.
 
 Executor drivers are selected with `PLOVER_EXECUTOR_DRIVER=mock|linux|windows|macos`.
 macOS uses `pyautogui` and requires Accessibility and Screen Recording

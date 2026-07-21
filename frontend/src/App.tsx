@@ -235,6 +235,8 @@ function AnnotationLayer({
 
   return (
     <div
+      aria-label="Screenshot annotation canvas"
+      data-testid="annotation-canvas"
       ref={containerRef}
       className="annotation-grid relative aspect-[4/3] overflow-hidden rounded-[28px] border border-moss/10 bg-[#fffdf8]"
       onPointerDown={(event) => {
@@ -262,17 +264,17 @@ function AnnotationLayer({
       {imageUrl ? (
         <img
           alt="Live view"
-          className="absolute inset-0 h-full w-full object-cover"
+          className="pointer-events-none absolute inset-0 h-full w-full object-cover"
           src={imageUrl}
         />
       ) : (
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(202,111,71,0.18),_transparent_42%),linear-gradient(130deg,_rgba(53,86,74,0.08),_transparent_56%)]" />
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(202,111,71,0.18),_transparent_42%),linear-gradient(130deg,_rgba(53,86,74,0.08),_transparent_56%)]" />
       )}
-      <div className="absolute inset-0 bg-gradient-to-b from-white/10 via-transparent to-black/5" />
-      <div className="absolute left-3 top-3 rounded-full border border-white/70 bg-white/75 px-3 py-1 text-[10px] uppercase tracking-[0.16em] text-moss shadow-sm sm:left-6 sm:top-6 sm:text-xs sm:tracking-[0.2em]">
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/10 via-transparent to-black/5" />
+      <div className="pointer-events-none absolute left-3 top-3 rounded-full border border-white/70 bg-white/75 px-3 py-1 text-[10px] uppercase tracking-[0.16em] text-moss shadow-sm sm:left-6 sm:top-6 sm:text-xs sm:tracking-[0.2em]">
         Live View 1024 x 768
       </div>
-      <div className="absolute inset-x-3 bottom-3 rounded-xl border border-white/60 bg-white/80 p-3 shadow-lg backdrop-blur sm:inset-x-10 sm:bottom-10 sm:rounded-[26px] sm:p-5">
+      <div className="pointer-events-none absolute inset-x-3 bottom-3 rounded-xl border border-white/60 bg-white/80 p-3 shadow-lg backdrop-blur sm:inset-x-10 sm:bottom-10 sm:rounded-[26px] sm:p-5">
         <p className="font-display text-sm text-ink sm:text-xl">Draw a box to anchor repair in pixel space</p>
         <p className="mt-2 hidden max-w-xl text-sm leading-6 text-ink/65 sm:block">
           The annotation is sent to the planner as a bounding box so only pending steps are revised.
@@ -280,7 +282,7 @@ function AnnotationLayer({
       </div>
       {box ? (
         <div
-          className="absolute border-[3px] border-clay bg-clay/10"
+          className="pointer-events-none absolute border-[3px] border-clay bg-clay/10"
           style={{
             left: `${(box.x / 1024) * 100}%`,
             top: `${(box.y / 768) * 100}%`,
@@ -1222,6 +1224,7 @@ export default function App() {
                       className="rounded-full bg-moss px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#28483e] disabled:cursor-not-allowed disabled:opacity-60"
                       disabled={!run || busy || !selectedBox || selectedBox.width < 4 || selectedBox.height < 4}
                       onClick={handleAnnotationReplan}
+                      type="button"
                     >
                       Submit annotation repair
                     </button>
@@ -1229,6 +1232,7 @@ export default function App() {
                       className="rounded-full border border-moss/15 bg-white px-4 py-3 text-sm font-semibold text-moss transition hover:bg-mist disabled:cursor-not-allowed disabled:opacity-60"
                       disabled={!selectedBox}
                       onClick={() => setSelectedBox(null)}
+                      type="button"
                     >
                       Clear box
                     </button>

@@ -1,5 +1,6 @@
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from io import BytesIO
 from os import environ
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -401,17 +402,22 @@ class PlannerServiceTests(unittest.TestCase):
                     "PLOVER_OBSERVATION_HEADERS": "",
                 },
             ):
-                client = TestClient(create_app(PlannerRepository(), DeterministicPlanner()))
+                repository = PlannerRepository()
+                client = TestClient(create_app(repository, DeterministicPlanner()))
                 created = client.post("/api/runs", json={"task": "Open a report"})
                 self.assertEqual(created.status_code, 201)
                 run = created.json()
-                self.assertEqual(run["live_view"]["width"], 320)
-                self.assertEqual(run["live_view"]["height"], 200)
+                self.assertEqual(run["live_view"]["width"], 1024)
+                self.assertEqual(run["live_view"]["height"], 768)
+                stored = repository.get(run["id"])
+                self.assertIsNotNone(stored)
+                with Image.open(BytesIO(stored.latest_screenshot_png)) as screenshot:
+                    self.assertEqual(screenshot.size, (1024, 768))
 
                 executed = client.post(f"/api/runs/{run['id']}/execute-next")
                 self.assertEqual(executed.status_code, 200)
-                self.assertEqual(executed.json()["live_view"]["width"], 320)
-                self.assertEqual(executed.json()["live_view"]["height"], 200)
+                self.assertEqual(executed.json()["live_view"]["width"], 1024)
+                self.assertEqual(executed.json()["live_view"]["height"], 768)
 
     def test_invalid_observation_header_config_is_rejected(self) -> None:
         with patch.dict(
@@ -455,7 +461,7 @@ class PlannerServiceTests(unittest.TestCase):
 
         server = grpc.server(ThreadPoolExecutor(max_workers=2))
         executor_pb2_grpc.add_ExecutorServicer_to_server(
-            ExecutorService(MockEnvironmentDriver(screenshot_bytes=b"png")),
+            ExecutorService(MockEnvironmentDriver()),
             server,
         )
         port = server.add_insecure_port("127.0.0.1:0")

@@ -9,7 +9,7 @@ from .models import (
     Proposal,
     ReplanCause,
 )
-from .image import dhash_from_image_bytes
+from .image import dhash_from_image_bytes, normalize_screenshot_png
 from .safety import SafetyDecision, inspect_text
 from .plan import PlanInvariantError, approve_proposal, complete_next_step, replace_pending
 
@@ -25,6 +25,7 @@ __all__ = [
     "approve_proposal",
     "complete_next_step",
     "dhash_from_image_bytes",
+    "normalize_screenshot_png",
     "SafetyDecision",
     "inspect_text",
     "replace_pending",

@@ -1,16 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from io import BytesIO
 import json
 import os
 from pathlib import Path
 from typing import Protocol
 from urllib.request import Request, urlopen
 
-from PIL import Image
-
 from executor_service.driver import SCREEN_HEIGHT, SCREEN_WIDTH
+from plover_core.image import normalize_screenshot_png
 
 
 @dataclass(frozen=True)
@@ -30,17 +28,17 @@ class ObservationSourceError(RuntimeError):
 
 def _normalize_image(payload: bytes) -> LiveObservation:
     try:
-        with Image.open(BytesIO(payload)) as image:
-            image.load()
-            width, height = image.size
-            output = BytesIO()
-            image.save(output, format="PNG")
+        screenshot_png = normalize_screenshot_png(
+            payload,
+            width=SCREEN_WIDTH,
+            height=SCREEN_HEIGHT,
+        )
     except Exception as error:  # pragma: no cover - exercised via public adapters
         raise ObservationSourceError("observation source returned an unreadable image") from error
     return LiveObservation(
-        screenshot_png=output.getvalue(),
-        width=width or SCREEN_WIDTH,
-        height=height or SCREEN_HEIGHT,
+        screenshot_png=screenshot_png,
+        width=SCREEN_WIDTH,
+        height=SCREEN_HEIGHT,
     )
 
 

@@ -9,7 +9,7 @@ from grpc import ServicerContext
 from executor_service import executor_pb2, executor_pb2_grpc
 from executor_service.driver import EnvironmentDriver, SCREEN_HEIGHT, SCREEN_WIDTH
 from plover_core.detection import Action, NonProgressDetector
-from plover_core.image import dhash_from_image_bytes
+from plover_core.image import dhash_from_image_bytes, normalize_screenshot_png
 
 
 def _now() -> str:
@@ -83,6 +83,13 @@ class ExecutorService(executor_pb2_grpc.ExecutorServicer):
             )
         )
 
+    def _capture_screenshot(self) -> bytes:
+        return normalize_screenshot_png(
+            self._driver.screenshot(),
+            width=SCREEN_WIDTH,
+            height=SCREEN_HEIGHT,
+        )
+
     def Execute(
         self,
         request: executor_pb2.ExecuteRequest,
@@ -113,10 +120,8 @@ class ExecutorService(executor_pb2_grpc.ExecutorServicer):
                 self._driver.scroll(action.scroll.delta)
             elif operation == "wait":
                 self._driver.wait(action.wait.milliseconds)
-            else:
-                screenshot = self._driver.screenshot()
 
-            screenshot = self._driver.screenshot()
+            screenshot = self._capture_screenshot()
             self._record_event(request.run_id, request.step_id, "action_completed", summary)
             detection = detector.observe(_canonical_action(action), screenshot_hash=_screenshot_hash(screenshot))
             if detection:
@@ -136,7 +141,7 @@ class ExecutorService(executor_pb2_grpc.ExecutorServicer):
         request: executor_pb2.ObserveRequest,
         context: ServicerContext,
     ) -> executor_pb2.ObserveResponse:
-        screenshot = self._driver.screenshot()
+        screenshot = self._capture_screenshot()
         self._record_event(request.run_id, "", "observation", "Capturing the current screen")
         return executor_pb2.ObserveResponse(
             ok=True,

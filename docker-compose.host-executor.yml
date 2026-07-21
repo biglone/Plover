@@ -1,0 +1,87 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${PLOVER_POSTGRES_DB:-plover}
+      POSTGRES_USER: ${PLOVER_POSTGRES_USER:-plover}
+      POSTGRES_PASSWORD: ${PLOVER_POSTGRES_PASSWORD:-plover}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${PLOVER_POSTGRES_USER:-plover} -d ${PLOVER_POSTGRES_DB:-plover}"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  planner:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PLOVER_PLANNER_HOST: 0.0.0.0
+      PLOVER_PLANNER_PORT: 8000
+      PLOVER_EXECUTOR_TARGET: ${PLOVER_EXECUTOR_TARGET:-host.docker.internal:${PLOVER_EXECUTOR_PORT:-50051}}
+      PLOVER_DATABASE_URL: ${PLOVER_DATABASE_URL:-postgresql://${PLOVER_POSTGRES_USER:-plover}:${PLOVER_POSTGRES_PASSWORD:-plover}@postgres:5432/${PLOVER_POSTGRES_DB:-plover}}
+      PLOVER_VNC_TARGET: ${PLOVER_VNC_TARGET:-}
+      PLOVER_OBSERVATION_PATH: ${PLOVER_OBSERVATION_PATH:-}
+      PLOVER_OBSERVATION_URL: ${PLOVER_OBSERVATION_URL:-}
+      PLOVER_OBSERVATION_HEADERS: ${PLOVER_OBSERVATION_HEADERS:-}
+      PLOVER_OBSERVATION_TIMEOUT_SECONDS: ${PLOVER_OBSERVATION_TIMEOUT_SECONDS:-}
+      PLOVER_LLM_ENDPOINT: ${PLOVER_LLM_ENDPOINT:-}
+      PLOVER_LLM_MODEL: ${PLOVER_LLM_MODEL:-}
+      PLOVER_LLM_API_KEY: ${PLOVER_LLM_API_KEY:-}
+      PLOVER_LLM_API_KEY_HEADER: ${PLOVER_LLM_API_KEY_HEADER:-}
+      PLOVER_LLM_API_KEY_PREFIX: ${PLOVER_LLM_API_KEY_PREFIX:-}
+      PLOVER_LLM_EXTRA_HEADERS: ${PLOVER_LLM_EXTRA_HEADERS:-}
+      PLOVER_LLM_STREAM: ${PLOVER_LLM_STREAM:-}
+      PLOVER_LLM_BOOTSTRAP_ENDPOINT: ${PLOVER_LLM_BOOTSTRAP_ENDPOINT:-}
+      PLOVER_LLM_BOOTSTRAP_METHOD: ${PLOVER_LLM_BOOTSTRAP_METHOD:-}
+      PLOVER_LLM_BOOTSTRAP_HEADERS: ${PLOVER_LLM_BOOTSTRAP_HEADERS:-}
+      PLOVER_LLM_BOOTSTRAP_BODY: ${PLOVER_LLM_BOOTSTRAP_BODY:-}
+      PLOVER_LLM_BOOTSTRAP_TOKEN_PATH: ${PLOVER_LLM_BOOTSTRAP_TOKEN_PATH:-}
+      PLOVER_LLM_BOOTSTRAP_EXPIRES_IN_PATH: ${PLOVER_LLM_BOOTSTRAP_EXPIRES_IN_PATH:-}
+      PLOVER_LLM_BOOTSTRAP_HEADER_NAME: ${PLOVER_LLM_BOOTSTRAP_HEADER_NAME:-}
+      PLOVER_LLM_BOOTSTRAP_HEADER_PREFIX: ${PLOVER_LLM_BOOTSTRAP_HEADER_PREFIX:-}
+      PLOVER_LLM_BOOTSTRAP_REFRESH_SKEW_SECONDS: ${PLOVER_LLM_BOOTSTRAP_REFRESH_SKEW_SECONDS:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${PLOVER_PLANNER_PUBLISH_PORT:-8000}:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      planner:
+        condition: service_healthy
+    ports:
+      - "${PLOVER_FRONTEND_PUBLISH_PORT:-3000}:80"
+    healthcheck:
+      test:
+        ["CMD-SHELL", "wget -q -O - http://127.0.0.1/frontend-health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  postgres-data:

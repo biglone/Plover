@@ -16,9 +16,16 @@ class FakeChatModel:
 
 
 class FakeHttpResponse:
-    def __init__(self, body: bytes | None = None, *, lines: tuple[bytes, ...] = ()) -> None:
+    def __init__(
+        self,
+        body: bytes | None = None,
+        *,
+        lines: tuple[bytes, ...] = (),
+        headers: dict[str, list[str]] | None = None,
+    ) -> None:
         self._body = body or b""
         self._lines = lines
+        self.headers = FakeHeaders(headers or {})
 
     def __enter__(self) -> "FakeHttpResponse":
         return self
@@ -31,6 +38,14 @@ class FakeHttpResponse:
 
     def read(self) -> bytes:
         return self._body
+
+
+class FakeHeaders:
+    def __init__(self, headers: dict[str, list[str]]) -> None:
+        self._headers = {key.lower(): values for key, values in headers.items()}
+
+    def get_all(self, name: str) -> list[str] | None:
+        return self._headers.get(name.lower())
 
 
 class ModelPlannerTests(unittest.TestCase):
@@ -168,12 +183,18 @@ class ModelPlannerTests(unittest.TestCase):
 
         def opener(http_request, *, timeout=None):
             headers = {key.lower(): value for key, value in http_request.header_items()}
+            headers["cookie"] = http_request.get_header("Cookie") or ""
             requests_seen.append((http_request.full_url, headers))
             if http_request.full_url.endswith("/session"):
-                return FakeHttpResponse(next(session_responses))
-            return FakeHttpResponse(
-                b'{"choices":[{"message":{"content":"<analysis>ok</analysis><steps><completed /><pending><step>Act</step></pending></steps>"}}]}'
-            )
+                cookies = {"Set-Cookie": [f"session_id=seed-{len([url for url, _ in requests_seen if url.endswith('/session')])}; Path=/"]}
+                return FakeHttpResponse(next(session_responses), headers=cookies)
+            if http_request.full_url.endswith("/chat/completions"):
+                cookies = {"Set-Cookie": [f"request_seen={len([url for url, _ in requests_seen if url.endswith('/chat/completions')])}; Path=/"]}
+                return FakeHttpResponse(
+                    b'{"choices":[{"message":{"content":"<analysis>ok</analysis><steps><completed /><pending><step>Act</step></pending></steps>"}}]}',
+                    headers=cookies,
+                )
+            return FakeHttpResponse(b"{}")
 
         bootstrapper = HeaderBootstrapper(
             endpoint="https://example.test/session",
@@ -203,6 +224,9 @@ class ModelPlannerTests(unittest.TestCase):
         self.assertEqual(model_calls[0]["authorization"], "Bearer boot-token-1")
         self.assertEqual(model_calls[1]["authorization"], "Bearer boot-token-1")
         self.assertEqual(model_calls[2]["authorization"], "Bearer boot-token-2")
+        self.assertEqual(model_calls[0]["cookie"], "session_id=seed-1")
+        self.assertEqual(model_calls[1]["cookie"], "request_seen=1; session_id=seed-1")
+        self.assertEqual(model_calls[2]["cookie"], "request_seen=2; session_id=seed-2")
 
     def test_create_planner_reads_stream_and_header_configuration_from_environment(self) -> None:
         with patch.dict(
@@ -258,6 +282,7 @@ class ModelPlannerTests(unittest.TestCase):
         self.assertEqual(bootstrapper.token_json_path, "session.token")
         self.assertEqual(bootstrapper.expires_in_json_path, "session.expires_in")
         self.assertEqual(bootstrapper.refresh_skew_seconds, 15)
+        self.assertIsNotNone(planner._model.cookie_jar)
 
     def test_create_planner_rejects_non_object_extra_headers(self) -> None:
         with patch.dict(

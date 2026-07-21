@@ -4,6 +4,7 @@ import json
 import os
 import time
 from dataclasses import dataclass, field
+from http.cookies import SimpleCookie
 from typing import Any, Callable, Protocol
 from urllib import request
 from uuid import uuid4
@@ -53,15 +54,19 @@ class HeaderBootstrapper:
     timeout_seconds: float = 30
     opener: Callable[..., Any] = request.urlopen
     clock: Callable[[], float] = time.monotonic
+    cookie_jar: "CookieJar | None" = None
     _cached_header_value: str | None = field(default=None, init=False, repr=False)
     _expires_at: float | None = field(default=None, init=False, repr=False)
 
     def _bootstrap_request(self) -> request.Request:
         data = self.body.encode("utf-8") if self.body is not None else None
+        headers = dict(self.headers)
+        if self.cookie_jar is not None:
+            self.cookie_jar.inject(headers)
         return request.Request(
             self.endpoint,
             data=data,
-            headers=self.headers,
+            headers=headers,
             method=self.method,
         )
 
@@ -71,6 +76,8 @@ class HeaderBootstrapper:
             return self.header_name, self._cached_header_value
 
         with self.opener(self._bootstrap_request(), timeout=self.timeout_seconds) as response:
+            if self.cookie_jar is not None:
+                self.cookie_jar.capture(response)
             body = json.loads(response.read().decode("utf-8"))
         token = _resolve_json_path(body, self.token_json_path)
         if not isinstance(token, str) or not token:
@@ -91,6 +98,28 @@ class HeaderBootstrapper:
 
 
 @dataclass
+class CookieJar:
+    cookies: dict[str, str] = field(default_factory=dict)
+
+    def capture(self, response: Any) -> None:
+        headers = getattr(response, "headers", None)
+        if headers is None or not hasattr(headers, "get_all"):
+            return
+        for raw_cookie in headers.get_all("Set-Cookie") or []:
+            parsed = SimpleCookie()
+            parsed.load(raw_cookie)
+            for name, morsel in parsed.items():
+                self.cookies[name] = morsel.value
+
+    def inject(self, headers: dict[str, str]) -> None:
+        if not self.cookies:
+            return
+        cookie_header = "; ".join(f"{name}={value}" for name, value in sorted(self.cookies.items()))
+        if cookie_header:
+            headers["Cookie"] = cookie_header
+
+
+@dataclass
 class OpenAICompatibleChatModel:
     endpoint: str
     model: str
@@ -102,6 +131,18 @@ class OpenAICompatibleChatModel:
     timeout_seconds: float = 90
     opener: Callable[..., Any] = request.urlopen
     bootstrapper: HeaderBootstrapper | None = None
+    cookie_jar: CookieJar | None = None
+
+    def __post_init__(self) -> None:
+        if self.bootstrapper is None:
+            return
+        if self.cookie_jar is None and self.bootstrapper.cookie_jar is None:
+            self.cookie_jar = CookieJar()
+            self.bootstrapper.cookie_jar = self.cookie_jar
+        elif self.cookie_jar is None:
+            self.cookie_jar = self.bootstrapper.cookie_jar
+        elif self.bootstrapper.cookie_jar is None:
+            self.bootstrapper.cookie_jar = self.cookie_jar
 
     def _headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}
@@ -109,9 +150,10 @@ class OpenAICompatibleChatModel:
         if self.bootstrapper is not None:
             header_name, header_value = self.bootstrapper.resolve_header()
             headers[header_name] = header_value
-            return headers
-        if self.api_key:
+        elif self.api_key:
             headers[self.api_key_header] = f"{self.api_key_prefix}{self.api_key}"
+        if self.cookie_jar is not None:
+            self.cookie_jar.inject(headers)
         return headers
 
     @staticmethod
@@ -205,6 +247,8 @@ class OpenAICompatibleChatModel:
             method="POST",
         )
         with self.opener(http_request, timeout=self.timeout_seconds) as response:
+            if self.cookie_jar is not None:
+                self.cookie_jar.capture(response)
             if self.stream:
                 return self._read_stream_response(response)
             body = json.loads(response.read().decode("utf-8"))
@@ -317,6 +361,7 @@ def create_planner() -> Any:
             raise RuntimeError("PLOVER_LLM_EXTRA_HEADERS must be a JSON object")
         extra_headers = {str(key): str(value) for key, value in parsed_headers.items()}
     bootstrapper: HeaderBootstrapper | None = None
+    cookie_jar = CookieJar()
     bootstrap_endpoint = os.getenv("PLOVER_LLM_BOOTSTRAP_ENDPOINT")
     if bootstrap_endpoint:
         bootstrap_headers: dict[str, str] = {}
@@ -340,6 +385,7 @@ def create_planner() -> Any:
             headers=bootstrap_headers,
             body=bootstrap_body,
             refresh_skew_seconds=float(os.getenv("PLOVER_LLM_BOOTSTRAP_REFRESH_SKEW_SECONDS", "30")),
+            cookie_jar=cookie_jar,
         )
     model = OpenAICompatibleChatModel(
         endpoint=endpoint,
@@ -350,5 +396,6 @@ def create_planner() -> Any:
         extra_headers=extra_headers,
         stream=os.getenv("PLOVER_LLM_STREAM", "").lower() in {"1", "true", "yes", "on"},
         bootstrapper=bootstrapper,
+        cookie_jar=cookie_jar,
     )
     return ModelPlanner(model)

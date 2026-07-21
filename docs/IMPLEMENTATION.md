@@ -24,6 +24,9 @@ This repository contains a runnable first vertical slice of the design in
   the visible state is already correct.
 - WebSocket Live View stream at `/api/runs/{run_id}/live` with 1024 x 768
   screenshot frames consumed directly by the React interface.
+- External Live View observation sources can replace the default executor
+  screenshot feed through `PLOVER_OBSERVATION_PATH` or
+  `PLOVER_OBSERVATION_URL`.
 - Raw VNC WebSocket bridge at `/api/runs/{run_id}/vnc`, configured with
   `PLOVER_VNC_TARGET=host:port`.
 - Browser noVNC client with interactive control, view-only mode, in-memory
@@ -62,6 +65,10 @@ separate Executor process, set `PLOVER_EXECUTOR_TARGET`, for example:
 PLOVER_EXECUTOR_TARGET=127.0.0.1:50051 \
 PYTHONPATH=backend .venv/bin/python -m planner_service
 ```
+
+To point Live View at an external screenshot feed instead of the executor's
+own frame capture, set `PLOVER_OBSERVATION_PATH` or `PLOVER_OBSERVATION_URL`.
+Path and header templates may include `{run_id}`.
 
 Planner uses in-memory state by default. Set `PLOVER_DATABASE_PATH` to persist
 run artifacts across restarts:
@@ -143,7 +150,5 @@ paths:
   cookie persistence.
 - Route executor `failure_type` responses to
   `POST /api/runs/{run_id}/failures` to surface a system-driven IR proposal.
-- Replace the local Executor screenshot source behind the screenshot WebSocket
-  with deployment-specific capture infrastructure where necessary.
 - Move SQLite to Postgres or another shared database for multi-process
   deployment.

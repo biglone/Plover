@@ -7,7 +7,7 @@ import json
 from threading import RLock
 from typing import Any, Mapping
 
-from plover_core.models import Annotation, ExecutionStatus, PlanState, PlanStep, PlanVersion, Proposal, ReplanCause
+from plover_core.models import Annotation, ExecutionStatus, PlanState, PlanStep, PlanVersion, Proposal, ReplanCause, StepAction
 from planner_service.database import apply_migrations, connect_postgres, connect_sqlite, resolve_database_target_from_env
 
 
@@ -130,12 +130,16 @@ def _encode_run(run: RunRecord) -> tuple[Any, ...]:
 
 
 def _step_from_dict(data: dict[str, Any]) -> PlanStep:
+    actions_data = data.get("actions", ())
+    if not isinstance(actions_data, list):
+        raise ValueError("plan step actions must be a list")
     return PlanStep(
         id=data["id"],
         instruction=data["instruction"],
         status=ExecutionStatus(data["status"]),
         ui_summary=data.get("ui_summary"),
         failure_reason=data.get("failure_reason"),
+        actions=tuple(StepAction.from_dict(action) for action in actions_data),
     )
 
 

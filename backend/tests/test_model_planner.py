@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from plover_core.models import ExecutionStatus, PlanState, PlanStep, PlanVersion, ReplanCause
+from plover_core.models import ExecutionStatus, PlanState, PlanStep, PlanVersion, ReplanCause, StepAction
 from planner_service.model_planner import (
     BootstrapRequestStep,
     HeaderBootstrapper,
@@ -78,8 +78,15 @@ class ModelPlannerTests(unittest.TestCase):
         current = PlanVersion(
             id="version-1",
             plan=PlanState(
-                completed=(PlanStep("step-1", "Open the report", ExecutionStatus.COMPLETED),),
-                pending=(PlanStep("step-2", "Select the wrong option"),),
+                completed=(
+                    PlanStep(
+                        "step-1",
+                        "Open the report",
+                        ExecutionStatus.COMPLETED,
+                        actions=(StepAction("click", x=12, y=20),),
+                    ),
+                ),
+                pending=(PlanStep("step-2", "Select the wrong option", actions=(StepAction("observe"),)),),
             ),
             parent_id=None,
             cause=ReplanCause.INITIAL,
@@ -110,6 +117,8 @@ class ModelPlannerTests(unittest.TestCase):
         self.assertEqual(proposal.version.plan.completed, current.plan.completed)
         self.assertEqual(proposal.version.cause, ReplanCause.USER_GUIDANCE)
         self.assertIn("<current_plan>", model.calls[0]["user"])
+        self.assertIn("<click x=\"12\" y=\"20\" />", model.calls[0]["user"])
+        self.assertIn("<observe />", model.calls[0]["user"])
         self.assertIn("<recent_screenshots count=\"3\" />", model.calls[0]["user"])
         self.assertEqual(
             model.calls[0]["image_urls"],

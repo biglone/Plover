@@ -25,6 +25,12 @@ Return exactly these XML blocks:
 Rules:
 - Preserve completed execution history and edit only the pending suffix.
 - Group consecutive simple actions when safe.
+- When the exact executor primitives are known, include an optional <actions>
+  block inside each <step> using only:
+  <click x=".." y=".." />, <double_click x=".." y=".." />, <move x=".." y=".." />,
+  <drag x=".." y=".." end_x=".." end_y=".." />, <type text=".." />,
+  <keys keys="CTRL,ENTER" />, <scroll delta="-300" />, <wait milliseconds="250" />,
+  and <observe />.
 - Verify state before acting and include a final visible outcome check.
 - Stop and request user guidance for ambiguity, credentials, passwords, or other sensitive data.
 - Use curl for complex network requests and pdftotext for complex PDF parsing when available.
@@ -38,4 +44,3 @@ def failure_message(failure_type: str) -> str:
         "Stuck/repetition detected. Stop. Change tactic that can solve this problem.\n"
         "</failure_detected>"
     )
-

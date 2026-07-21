@@ -8,6 +8,7 @@ from .models import (
     PlanVersion,
     Proposal,
     ReplanCause,
+    StepAction,
 )
 from .image import dhash_from_image_bytes, normalize_screenshot_png
 from .safety import SafetyDecision, inspect_text
@@ -27,6 +28,7 @@ __all__ = [
     "dhash_from_image_bytes",
     "normalize_screenshot_png",
     "SafetyDecision",
+    "StepAction",
     "inspect_text",
     "replace_pending",
 ]

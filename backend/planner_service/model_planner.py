@@ -9,8 +9,9 @@ from http.cookies import SimpleCookie
 from typing import Any, Callable, Protocol
 from urllib import request
 from uuid import uuid4
+from xml.sax.saxutils import escape
 
-from plover_core.models import Annotation, PlanState, PlanVersion, Proposal, ReplanCause
+from plover_core.models import Annotation, PlanState, PlanStep, PlanVersion, Proposal, ReplanCause
 from plover_core.plan import replace_pending
 from plover_core.prompts import PROPOSAL_MODE_SUFFIX, failure_message, planner_system_prompt
 from plover_core.xml_plan import parse_plan_response
@@ -328,12 +329,40 @@ class OpenAICompatibleChatModel:
 def _plan_context(plan: PlanVersion) -> str:
     lines = ["<current_plan>", "<completed>"]
     for step in plan.plan.completed:
-        lines.append(f'<step id="{step.id}">{step.instruction}</step>')
+        lines.extend(_step_context(step))
     lines.extend(["</completed>", "<pending>"])
     for step in plan.plan.pending:
-        lines.append(f'<step id="{step.id}">{step.instruction}</step>')
+        lines.extend(_step_context(step))
     lines.extend(["</pending>", "</current_plan>"])
     return "\n".join(lines)
+
+
+def _step_context(step: PlanStep) -> list[str]:
+    lines = [f'<step id="{escape(step.id)}">', f"<instruction>{escape(step.instruction)}</instruction>"]
+    if step.ui_summary:
+        lines.append(f"<ui_summary>{escape(step.ui_summary)}</ui_summary>")
+    if step.actions:
+        lines.append("<actions>")
+        for action in step.actions:
+            if action.kind in {"click", "double_click", "move"}:
+                lines.append(f'<{action.kind} x="{action.x}" y="{action.y}" />')
+            elif action.kind == "drag":
+                lines.append(
+                    f'<drag x="{action.x}" y="{action.y}" end_x="{action.end_x}" end_y="{action.end_y}" />'
+                )
+            elif action.kind == "type":
+                lines.append(f'<type text="{escape(action.text or "")}" />')
+            elif action.kind == "keys":
+                lines.append(f'<keys keys="{escape(",".join(action.keys))}" />')
+            elif action.kind == "scroll":
+                lines.append(f'<scroll delta="{action.delta}" />')
+            elif action.kind == "wait":
+                lines.append(f'<wait milliseconds="{action.milliseconds}" />')
+            else:
+                lines.append("<observe />")
+        lines.append("</actions>")
+    lines.append("</step>")
+    return lines
 
 
 def _cause(*, guidance: str | None, annotation: Annotation | None, failure_type: str | None) -> ReplanCause:

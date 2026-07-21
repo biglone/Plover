@@ -2,7 +2,7 @@ import unittest
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from plover_core.models import PlanState, PlanStep, PlanVersion, ReplanCause
+from plover_core.models import PlanState, PlanStep, PlanVersion, ReplanCause, StepAction
 from planner_service.database import apply_migrations, connect_sqlite, current_schema_version
 from planner_service.store import PostgresPlannerRepository, RunRecord, SqlitePlannerRepository, create_repository
 
@@ -90,7 +90,7 @@ def sample_run() -> RunRecord:
         id="version-1",
         plan=PlanState(
             completed=(),
-            pending=(PlanStep("step-1", "Open the report"),),
+            pending=(PlanStep("step-1", "Open the report", actions=(StepAction("observe"),)),),
         ),
         parent_id=None,
         cause=ReplanCause.INITIAL,
@@ -143,6 +143,7 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(loaded.task, created.task)
         self.assertEqual(loaded.live_view_width, 320)
         self.assertEqual(loaded.events[0]["type"], "plan_created")
+        self.assertEqual(loaded.active_version().plan.pending[0].actions, (StepAction("observe"),))
 
         loaded.status = "completed"
         repository.save(loaded)

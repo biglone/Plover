@@ -1,6 +1,6 @@
 import unittest
 
-from plover_core.models import ExecutionStatus, PlanState, PlanStep, ReplanCause
+from plover_core.models import ExecutionStatus, PlanState, PlanStep, ReplanCause, StepAction
 from plover_core.plan import PlanInvariantError, approve_proposal, complete_next_step, replace_pending
 
 
@@ -48,3 +48,41 @@ class PlanStateTests(unittest.TestCase):
         with self.assertRaises(PlanInvariantError):
             approve_proposal(base, proposal)
 
+    def test_approval_rejects_mutated_completed_actions(self) -> None:
+        from plover_core.models import PlanVersion, Proposal
+
+        completed = PlanStep(
+            "step-1",
+            "Open the settings panel",
+            ExecutionStatus.COMPLETED,
+            actions=(StepAction("click", x=12, y=20),),
+        )
+        base = PlanVersion(
+            "v1",
+            PlanState(completed=(completed,), pending=()),
+            None,
+            ReplanCause.INITIAL,
+            "now",
+        )
+        mutated = PlanStep(
+            "step-1",
+            "Open the settings panel",
+            ExecutionStatus.COMPLETED,
+            actions=(StepAction("click", x=24, y=36),),
+        )
+        proposal = Proposal(
+            "proposal-1",
+            "v1",
+            PlanVersion(
+                "v2",
+                PlanState(completed=(mutated,), pending=()),
+                "v1",
+                ReplanCause.USER_GUIDANCE,
+                "now",
+            ),
+            "Change",
+            "Because",
+        )
+
+        with self.assertRaises(PlanInvariantError):
+            approve_proposal(base, proposal)

@@ -15,7 +15,14 @@ from plover_core.safety import inspect_text
 from plover_core.xml_plan import PlanParseError
 from planner_service.executor_gateway import ExecutorGateway, create_executor_gateway_from_env
 from planner_service.model_planner import create_planner
-from planner_service.store import PlannerRepository, RunRecord, SqlitePlannerRepository, create_repository, utc_now
+from planner_service.store import (
+    PlannerRepository,
+    PostgresPlannerRepository,
+    RunRecord,
+    SqlitePlannerRepository,
+    create_repository,
+    utc_now,
+)
 from planner_service.vnc_gateway import VncTarget, VncTargetError, proxy_vnc
 
 
@@ -142,7 +149,7 @@ def _planner_screenshots(run: RunRecord, annotation: Annotation | None = None) -
 
 
 def create_app(
-    repository: PlannerRepository | SqlitePlannerRepository | None = None,
+    repository: PlannerRepository | SqlitePlannerRepository | PostgresPlannerRepository | None = None,
     planner: Any | None = None,
     executor: ExecutorGateway | None = None,
 ) -> FastAPI:

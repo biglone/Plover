@@ -7,7 +7,7 @@ import json
 import os
 import sqlite3
 from threading import RLock
-from typing import Any
+from typing import Any, Mapping
 
 from plover_core.models import Annotation, ExecutionStatus, PlanState, PlanStep, PlanVersion, Proposal, ReplanCause
 
@@ -114,6 +114,22 @@ class PlannerRepository:
         return run
 
 
+def _encode_run(run: RunRecord) -> tuple[Any, ...]:
+    return (
+        run.id,
+        run.task,
+        run.active_version_id,
+        run.status,
+        json.dumps({key: value.as_dict() for key, value in run.versions.items()}),
+        json.dumps({key: value.as_dict() for key, value in run.proposals.items()}),
+        json.dumps(run.events),
+        json.dumps(run.screenshots),
+        run.latest_screenshot_png,
+        run.live_view_width,
+        run.live_view_height,
+    )
+
+
 def _step_from_dict(data: dict[str, Any]) -> PlanStep:
     return PlanStep(
         id=data["id"],
@@ -165,6 +181,33 @@ def _proposal_from_dict(data: dict[str, Any]) -> Proposal:
     )
 
 
+def _decode_run(row: Mapping[str, Any]) -> RunRecord:
+    versions_data = json.loads(row["versions_json"])
+    proposals_data = json.loads(row["proposals_json"])
+    return RunRecord(
+        id=row["id"],
+        task=row["task"],
+        active_version_id=row["active_version_id"],
+        versions={key: _version_from_dict(value) for key, value in versions_data.items()},
+        proposals={key: _proposal_from_dict(value) for key, value in proposals_data.items()},
+        events=json.loads(row["events_json"]),
+        screenshots=json.loads(row["screenshots_json"]),
+        latest_screenshot_png=bytes(row["latest_screenshot_png"]),
+        live_view_width=row["live_view_width"],
+        live_view_height=row["live_view_height"],
+        status=row["status"],
+    )
+
+
+def _connect_postgres(dsn: str) -> Any:
+    try:
+        import psycopg
+        from psycopg.rows import dict_row
+    except ImportError as error:  # pragma: no cover - exercised in deployment environments
+        raise RuntimeError("Install psycopg to use PostgreSQL persistence") from error
+    return psycopg.connect(dsn, row_factory=dict_row)
+
+
 class SqlitePlannerRepository:
     """Durable repository for plan artifacts and execution provenance."""
 
@@ -194,38 +237,6 @@ class SqlitePlannerRepository:
         )
         self._connection.commit()
 
-    def _encode(self, run: RunRecord) -> tuple[Any, ...]:
-        return (
-            run.id,
-            run.task,
-            run.active_version_id,
-            run.status,
-            json.dumps({key: value.as_dict() for key, value in run.versions.items()}),
-            json.dumps({key: value.as_dict() for key, value in run.proposals.items()}),
-            json.dumps(run.events),
-            json.dumps(run.screenshots),
-            run.latest_screenshot_png,
-            run.live_view_width,
-            run.live_view_height,
-        )
-
-    def _decode(self, row: sqlite3.Row) -> RunRecord:
-        versions_data = json.loads(row["versions_json"])
-        proposals_data = json.loads(row["proposals_json"])
-        return RunRecord(
-            id=row["id"],
-            task=row["task"],
-            active_version_id=row["active_version_id"],
-            versions={key: _version_from_dict(value) for key, value in versions_data.items()},
-            proposals={key: _proposal_from_dict(value) for key, value in proposals_data.items()},
-            events=json.loads(row["events_json"]),
-            screenshots=json.loads(row["screenshots_json"]),
-            latest_screenshot_png=bytes(row["latest_screenshot_png"]),
-            live_view_width=row["live_view_width"],
-            live_view_height=row["live_view_height"],
-            status=row["status"],
-        )
-
     def create(self, run: RunRecord) -> RunRecord:
         with self._lock:
             self._connection.execute(
@@ -236,7 +247,7 @@ class SqlitePlannerRepository:
                     latest_screenshot_png, live_view_width, live_view_height
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                self._encode(run),
+                _encode_run(run),
             )
             self._connection.commit()
         return run
@@ -247,7 +258,7 @@ class SqlitePlannerRepository:
                 "SELECT * FROM runs WHERE id = ?",
                 (run_id,),
             ).fetchone()
-        return self._decode(row) if row else None
+        return _decode_run(row) if row else None
 
     def save(self, run: RunRecord) -> RunRecord:
         with self._lock:
@@ -260,7 +271,7 @@ class SqlitePlannerRepository:
                     live_view_width = ?, live_view_height = ?
                 WHERE id = ?
                 """,
-                self._encode(run)[1:] + (run.id,),
+                _encode_run(run)[1:] + (run.id,),
             )
             if cursor.rowcount != 1:
                 raise KeyError(run.id)
@@ -272,6 +283,85 @@ class SqlitePlannerRepository:
             self._connection.close()
 
 
-def create_repository() -> PlannerRepository | SqlitePlannerRepository:
+class PostgresPlannerRepository:
+    """Durable repository backed by PostgreSQL for multi-process deployments."""
+
+    def __init__(self, dsn: str, connection: Any | None = None) -> None:
+        self._dsn = dsn
+        self._lock = RLock()
+        self._connection = connection or _connect_postgres(dsn)
+        self._connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS runs (
+                id TEXT PRIMARY KEY,
+                task TEXT NOT NULL,
+                active_version_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                versions_json TEXT NOT NULL,
+                proposals_json TEXT NOT NULL,
+                events_json TEXT NOT NULL,
+                screenshots_json TEXT NOT NULL,
+                latest_screenshot_png BYTEA NOT NULL,
+                live_view_width INTEGER NOT NULL,
+                live_view_height INTEGER NOT NULL
+            )
+            """
+        )
+        self._connection.commit()
+
+    def create(self, run: RunRecord) -> RunRecord:
+        with self._lock:
+            self._connection.execute(
+                """
+                INSERT INTO runs (
+                    id, task, active_version_id, status, versions_json,
+                    proposals_json, events_json, screenshots_json,
+                    latest_screenshot_png, live_view_width, live_view_height
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                _encode_run(run),
+            )
+            self._connection.commit()
+        return run
+
+    def get(self, run_id: str) -> RunRecord | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT * FROM runs WHERE id = %s",
+                (run_id,),
+            ).fetchone()
+        return _decode_run(row) if row else None
+
+    def save(self, run: RunRecord) -> RunRecord:
+        with self._lock:
+            cursor = self._connection.execute(
+                """
+                UPDATE runs SET
+                    task = %s, active_version_id = %s, status = %s,
+                    versions_json = %s, proposals_json = %s, events_json = %s,
+                    screenshots_json = %s, latest_screenshot_png = %s,
+                    live_view_width = %s, live_view_height = %s
+                WHERE id = %s
+                """,
+                _encode_run(run)[1:] + (run.id,),
+            )
+            if cursor.rowcount != 1:
+                raise KeyError(run.id)
+            self._connection.commit()
+        return run
+
+    def close(self) -> None:
+        with self._lock:
+            self._connection.close()
+
+
+def create_repository() -> PlannerRepository | SqlitePlannerRepository | PostgresPlannerRepository:
+    database_url = (os.getenv("PLOVER_DATABASE_URL") or "").strip()
+    if database_url:
+        if database_url.startswith("sqlite:///"):
+            return SqlitePlannerRepository(database_url.removeprefix("sqlite:///"))
+        if database_url.startswith(("postgresql://", "postgres://")):
+            return PostgresPlannerRepository(database_url)
+        raise RuntimeError("PLOVER_DATABASE_URL must use sqlite:/// or postgresql://")
     path = os.getenv("PLOVER_DATABASE_PATH")
     return SqlitePlannerRepository(path) if path else PlannerRepository()

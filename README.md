@@ -39,6 +39,7 @@ You can still run checks manually:
 
 ```bash
 PYTHONPATH=backend .venv/bin/python -m unittest discover -s backend/tests -v
+./scripts/run_acceptance.sh
 npm --prefix frontend run build
 ```
 

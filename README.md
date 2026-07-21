@@ -55,6 +55,12 @@ It captures one frame and checks Accessibility without clicking or typing on
 the desktop. If it reports a Screen Recording failure, grant the terminal or
 Executor process access in **System Settings -> Privacy & Security -> Screen
 Recording**, then run the same command again.
+To verify the complete Docker Planner-to-host Executor observation path, run
+`./scripts/run_macos_host_executor_smoke.sh` after Docker Desktop is running.
+It starts isolated temporary services, creates a run, refreshes its Live View,
+and asserts two normalized screenshots. It never calls the execution endpoint,
+so it does not click, type, or scroll on the desktop. Temporary containers,
+database volume, and host Executor are stopped automatically.
 
 You can still run checks manually:
 
@@ -69,6 +75,7 @@ npm --prefix frontend run build
 ./scripts/run_browser_annotation_e2e.sh
 ./scripts/run_macos_smoke.sh
 ./scripts/run_macos_motion_smoke.sh
+./scripts/run_macos_host_executor_smoke.sh
 ```
 
 The initial implementation uses a deterministic mock planner and executor by

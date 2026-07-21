@@ -206,6 +206,15 @@ and rerun the smoke check.
 moving the cursor to its current coordinate once. It does not click, type, or
 scroll.
 
+With Docker Desktop running, `./scripts/run_macos_host_executor_smoke.sh`
+verifies the complete Planner-to-host Executor observation path. It starts an
+isolated PostgreSQL and Planner Compose project, points it at a temporary
+macOS Executor through `host.docker.internal`, then creates a run and refreshes
+its Live View. The script only uses observation endpoints and asserts the two
+returned PNG frames are normalized to 1024x768; it never sends an execution
+request or desktop input. All services and the temporary Compose volume are
+removed on exit.
+
 To connect the browser directly to a VNC session, start Planner with a target
 that speaks the RFB protocol. The browser connects to Planner's same-origin
 WebSocket endpoint, so no separate websockify process is required:

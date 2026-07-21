@@ -11,6 +11,8 @@ This repository contains a runnable first vertical slice of the design in
 - Planner REST API for creating runs, requesting natural-language or annotated
   replans, proposing direct manual edits, approving proposals, and progressing
   steps.
+- Manual pending edits support either plain instructions or per-step structured
+  action manifests for exact executor primitives.
 - XML planner responses can now attach structured executor primitives inside
   each step, and the executor prefers those explicit actions over keyword-based
   fallbacks.

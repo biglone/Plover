@@ -23,7 +23,8 @@ This repository contains a runnable first vertical slice of the design in
 - A manual current-step completion action for operator-approved progress when
   the visible state is already correct.
 - WebSocket Live View stream at `/api/runs/{run_id}/live` with 1024 x 768
-  screenshot frames consumed directly by the React interface.
+  screenshot frames consumed directly by the React interface, including
+  normalized screenshots from native drivers and external observation feeds.
 - External Live View observation sources can replace the default executor
   screenshot feed through `PLOVER_OBSERVATION_PATH` or
   `PLOVER_OBSERVATION_URL`.

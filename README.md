@@ -107,6 +107,8 @@ Set `PLOVER_VNC_TARGET=host:port` to expose a raw VNC WebSocket bridge at
 `/api/runs/{run_id}/vnc`. The React Live View uses noVNC to provide interactive
 desktop control, view-only access, credential prompts, and reconnect support.
 The screenshot annotation mode remains available when VNC is not configured.
+Executor and external observation frames are normalized to `1024 x 768` so
+annotation coordinates remain stable across platforms.
 
 Safety-sensitive references such as "stop if a password is required" are
 treated as policy instructions rather than secret material. When a run is

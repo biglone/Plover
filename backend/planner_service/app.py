@@ -10,7 +10,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
 from plover_core.models import Annotation, PlanState, PlanStep, PlanVersion, Proposal, ReplanCause
-from plover_core.plan import PlanInvariantError, approve_proposal, complete_next_step, replace_pending
+from plover_core.plan import PlanInvariantError, approve_proposal, complete_next_step, fail_next_step, replace_pending
 from plover_core.safety import inspect_text
 from plover_core.xml_plan import PlanParseError
 from planner_service.executor_gateway import ExecutorGateway, create_executor_gateway_from_env
@@ -109,6 +109,9 @@ def _sync_run_status(run: RunRecord) -> None:
     if any(proposal.status == "pending" for proposal in run.proposals.values()):
         run.status = "paused"
         return
+    if any(step.status == "failed" for step in run.active_version().plan.pending):
+        run.status = "paused"
+        return
     run.status = "completed" if not run.active_version().plan.pending else "running"
 
 
@@ -117,6 +120,8 @@ def _manual_status_blocker(run: RunRecord) -> str | None:
         return "run is blocked by a safety stop"
     if any(proposal.status == "pending" for proposal in run.proposals.values()):
         return "run has pending proposals that must be resolved first"
+    if any(step.status == "failed" for step in run.active_version().plan.pending):
+        return "run has a failed step that must be repaired first"
     if not run.active_version().plan.pending:
         return "run has no pending steps left to execute"
     return None
@@ -129,6 +134,8 @@ def _manual_completion_blocker(run: RunRecord) -> str | None:
         return "run is blocked by a safety stop"
     if any(proposal.status == "pending" for proposal in run.proposals.values()):
         return "run has pending proposals that must be resolved first"
+    if any(step.status == "failed" for step in run.active_version().plan.pending):
+        return "run has a failed step that must be repaired first"
     if not run.active_version().plan.pending:
         return "run has no pending steps left to complete"
     return None
@@ -559,8 +566,22 @@ def create_app(
             run.add_screenshot(run.live_view_data_url() or "")
 
         if not result.ok:
+            failed_plan = fail_next_step(
+                current.plan,
+                reason=result.failure_type or "executor failure",
+            )
+            failed_version = PlanVersion(
+                id=f"version-{uuid4().hex[:10]}",
+                plan=failed_plan,
+                parent_id=current.id,
+                cause=current.cause,
+                created_at=utc_now(),
+                derived_constraints=current.derived_constraints,
+            )
+            run.versions[failed_version.id] = failed_version
+            run.active_version_id = failed_version.id
             proposal = planner.propose_repair(
-                current,
+                failed_version,
                 guidance=None,
                 annotation=None,
                 failure_type=result.failure_type,
@@ -575,6 +596,7 @@ def create_app(
             run.add_event(
                 "step_execution_failed",
                 step_id=step.id,
+                version_id=failed_version.id,
                 failure_type=result.failure_type,
                 proposal_id=proposal.id,
             )

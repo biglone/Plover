@@ -154,15 +154,37 @@ class AcceptanceTests(unittest.TestCase):
         failed = client.post(f"/api/runs/{run['id']}/execute-next").json()
         self.assertEqual(failed["status"], "paused")
         self.assertEqual(failed["events"][-1]["type"], "step_execution_failed")
+        failed_step = failed["active_version"]["plan"]["pending"][0]
+        self.assertEqual(failed_step["status"], "failed")
+        self.assertEqual(failed_step["failure_reason"], "REPEAT_CLICK_MENU")
 
         proposal = next(proposal for proposal in failed["proposals"] if proposal["status"] == "pending")
         self.assertEqual(proposal["version"]["cause"], "system_driven_ir")
+        self.assertEqual(proposal["base_version_id"], failed["active_version"]["id"])
 
         approved = client.post(f"/api/runs/{run['id']}/proposals/{proposal['id']}/approve").json()
         self.assertEqual(approved["status"], "running")
         recovered = client.post(f"/api/runs/{run['id']}/execute-next").json()
         self.assertEqual(len(recovered["active_version"]["plan"]["completed"]), 1)
         self.assertIn("Recovered", recovered["active_version"]["plan"]["completed"][0]["ui_summary"])
+
+    def test_rejected_failure_proposal_keeps_the_failed_step_paused(self) -> None:
+        client = TestClient(create_app(PlannerRepository(), DeterministicPlanner(), FlakyExecutorGateway()))
+
+        run = client.post("/api/runs", json={"task": "Open a report"}).json()
+        failed = client.post(f"/api/runs/{run['id']}/execute-next").json()
+        proposal = next(proposal for proposal in failed["proposals"] if proposal["status"] == "pending")
+
+        rejected = client.post(f"/api/runs/{run['id']}/proposals/{proposal['id']}/reject")
+        self.assertEqual(rejected.status_code, 200)
+        self.assertEqual(rejected.json()["status"], "paused")
+
+        resumed = client.post(
+            f"/api/runs/{run['id']}/status",
+            json={"status": "running", "reason": "Retry the failed action without a repair"},
+        )
+        self.assertEqual(resumed.status_code, 409)
+        self.assertIn("failed step", resumed.json()["detail"])
 
 
 if __name__ == "__main__":

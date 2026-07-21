@@ -1162,7 +1162,11 @@ export default function App() {
                 </div>
               ) : null}
               {run?.active_safety_stop && !hasPendingProposals ? (
-                <div className="mb-4 rounded-[26px] border border-amber-200 bg-amber-50 p-4">
+                <div
+                  aria-label="Safety pause"
+                  className="mb-4 rounded-[26px] border border-amber-200 bg-amber-50 p-4"
+                  data-testid="safety-pause"
+                >
                   <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-700">
                     Safety pause
                   </p>
@@ -1170,6 +1174,7 @@ export default function App() {
                     {run.active_safety_stop.reason ?? "The run is waiting for user guidance."}
                   </p>
                   <textarea
+                    aria-label="Safety resume guidance"
                     className="mt-4 min-h-24 w-full rounded-[22px] border border-amber-200 bg-white px-4 py-3 text-sm leading-6 text-ink outline-none transition focus:border-amber-300"
                     value={resumeNote}
                     onChange={(event) => setResumeNote(event.target.value)}

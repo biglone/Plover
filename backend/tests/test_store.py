@@ -3,6 +3,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from plover_core.models import PlanState, PlanStep, PlanVersion, ReplanCause
+from planner_service.database import apply_migrations, connect_sqlite, current_schema_version
 from planner_service.store import PostgresPlannerRepository, RunRecord, SqlitePlannerRepository, create_repository
 
 
@@ -14,16 +15,36 @@ class FakeCursor:
     def fetchone(self):
         return self._row
 
+    def fetchall(self):
+        if self._row is None:
+            return []
+        if isinstance(self._row, list):
+            return self._row
+        return [self._row]
+
 
 class FakePostgresConnection:
     def __init__(self) -> None:
         self.rows: dict[str, dict[str, object]] = {}
+        self.schema_migrations: list[tuple[str, str]] = []
         self.closed = False
         self.commits = 0
 
     def execute(self, query: str, params=None):
         statement = " ".join(query.split())
-        if statement.startswith("CREATE TABLE"):
+        if statement.startswith("CREATE TABLE IF NOT EXISTS schema_migrations"):
+            return FakeCursor()
+        if statement.startswith("SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1"):
+            if not self.schema_migrations:
+                return FakeCursor()
+            version, applied_at = self.schema_migrations[-1]
+            return FakeCursor({"version": version, "applied_at": applied_at})
+        if statement.startswith("SELECT version FROM schema_migrations ORDER BY version"):
+            return FakeCursor([{"version": version, "applied_at": applied_at} for version, applied_at in self.schema_migrations])
+        if statement.startswith("INSERT INTO schema_migrations"):
+            self.schema_migrations.append((params[0], params[1]))
+            return FakeCursor(rowcount=1)
+        if statement.startswith("CREATE TABLE runs"):
             return FakeCursor()
         if statement.startswith("INSERT INTO runs"):
             row = self._row_from_tuple(params)
@@ -89,6 +110,27 @@ def sample_run() -> RunRecord:
 
 
 class StoreTests(unittest.TestCase):
+    def test_sqlite_migrations_are_idempotent_and_track_schema_version(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = f"{directory}/planner.sqlite3"
+            connection = connect_sqlite(path)
+            try:
+                applied = apply_migrations(connection, "sqlite")
+                reapplied = apply_migrations(connection, "sqlite")
+                tables = {
+                    row[0]
+                    for row in connection.execute(
+                        "SELECT name FROM sqlite_master WHERE type = 'table'"
+                    ).fetchall()
+                }
+                self.assertEqual(applied, ("0001_runs",))
+                self.assertEqual(reapplied, ())
+                self.assertIn("runs", tables)
+                self.assertIn("schema_migrations", tables)
+                self.assertEqual(current_schema_version(connection), "0001_runs")
+            finally:
+                connection.close()
+
     def test_postgres_repository_round_trips_run_records(self) -> None:
         connection = FakePostgresConnection()
         repository = PostgresPlannerRepository("postgresql://db.test/plover", connection=connection)
@@ -106,6 +148,7 @@ class StoreTests(unittest.TestCase):
         repository.save(loaded)
         updated = repository.get(created.id)
         self.assertEqual(updated.status, "completed")
+        self.assertEqual(current_schema_version(connection), "0001_runs")
 
         repository.close()
         self.assertTrue(connection.closed)
@@ -129,7 +172,7 @@ class StoreTests(unittest.TestCase):
 
     def test_create_repository_supports_postgres_database_url(self) -> None:
         connection = FakePostgresConnection()
-        with patch("planner_service.store._connect_postgres", return_value=connection):
+        with patch("planner_service.store.connect_postgres", return_value=connection):
             with patch.dict(
                 "os.environ",
                 {

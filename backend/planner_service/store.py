@@ -4,12 +4,11 @@ from base64 import b64encode
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
-import os
-import sqlite3
 from threading import RLock
 from typing import Any, Mapping
 
 from plover_core.models import Annotation, ExecutionStatus, PlanState, PlanStep, PlanVersion, Proposal, ReplanCause
+from planner_service.database import apply_migrations, connect_postgres, connect_sqlite, resolve_database_target_from_env
 
 
 def utc_now() -> str:
@@ -199,43 +198,14 @@ def _decode_run(row: Mapping[str, Any]) -> RunRecord:
     )
 
 
-def _connect_postgres(dsn: str) -> Any:
-    try:
-        import psycopg
-        from psycopg.rows import dict_row
-    except ImportError as error:  # pragma: no cover - exercised in deployment environments
-        raise RuntimeError("Install psycopg to use PostgreSQL persistence") from error
-    return psycopg.connect(dsn, row_factory=dict_row)
-
-
 class SqlitePlannerRepository:
     """Durable repository for plan artifacts and execution provenance."""
 
     def __init__(self, path: str) -> None:
         self._path = path
         self._lock = RLock()
-        if path != ":memory:":
-            os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-        self._connection = sqlite3.connect(path, check_same_thread=False)
-        self._connection.row_factory = sqlite3.Row
-        self._connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS runs (
-                id TEXT PRIMARY KEY,
-                task TEXT NOT NULL,
-                active_version_id TEXT NOT NULL,
-                status TEXT NOT NULL,
-                versions_json TEXT NOT NULL,
-                proposals_json TEXT NOT NULL,
-                events_json TEXT NOT NULL,
-                screenshots_json TEXT NOT NULL,
-                latest_screenshot_png BLOB NOT NULL,
-                live_view_width INTEGER NOT NULL,
-                live_view_height INTEGER NOT NULL
-            )
-            """
-        )
-        self._connection.commit()
+        self._connection = connect_sqlite(path)
+        apply_migrations(self._connection, "sqlite")
 
     def create(self, run: RunRecord) -> RunRecord:
         with self._lock:
@@ -289,25 +259,8 @@ class PostgresPlannerRepository:
     def __init__(self, dsn: str, connection: Any | None = None) -> None:
         self._dsn = dsn
         self._lock = RLock()
-        self._connection = connection or _connect_postgres(dsn)
-        self._connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS runs (
-                id TEXT PRIMARY KEY,
-                task TEXT NOT NULL,
-                active_version_id TEXT NOT NULL,
-                status TEXT NOT NULL,
-                versions_json TEXT NOT NULL,
-                proposals_json TEXT NOT NULL,
-                events_json TEXT NOT NULL,
-                screenshots_json TEXT NOT NULL,
-                latest_screenshot_png BYTEA NOT NULL,
-                live_view_width INTEGER NOT NULL,
-                live_view_height INTEGER NOT NULL
-            )
-            """
-        )
-        self._connection.commit()
+        self._connection = connection or connect_postgres(dsn)
+        apply_migrations(self._connection, "postgres")
 
     def create(self, run: RunRecord) -> RunRecord:
         with self._lock:
@@ -356,12 +309,9 @@ class PostgresPlannerRepository:
 
 
 def create_repository() -> PlannerRepository | SqlitePlannerRepository | PostgresPlannerRepository:
-    database_url = (os.getenv("PLOVER_DATABASE_URL") or "").strip()
-    if database_url:
-        if database_url.startswith("sqlite:///"):
-            return SqlitePlannerRepository(database_url.removeprefix("sqlite:///"))
-        if database_url.startswith(("postgresql://", "postgres://")):
-            return PostgresPlannerRepository(database_url)
-        raise RuntimeError("PLOVER_DATABASE_URL must use sqlite:/// or postgresql://")
-    path = os.getenv("PLOVER_DATABASE_PATH")
-    return SqlitePlannerRepository(path) if path else PlannerRepository()
+    target = resolve_database_target_from_env()
+    if target is None:
+        return PlannerRepository()
+    if target.kind == "sqlite":
+        return SqlitePlannerRepository(target.location)
+    return PostgresPlannerRepository(target.location)

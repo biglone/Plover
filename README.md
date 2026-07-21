@@ -57,11 +57,22 @@ You can still run checks manually:
 PYTHONPATH=backend .venv/bin/python -m unittest discover -s backend/tests -v
 ./scripts/run_acceptance.sh
 npm --prefix frontend run build
+./scripts/run_browser_e2e.sh
 ```
 
 The initial implementation uses a deterministic mock planner and executor by
 default. This keeps the product runnable without credentials while preserving
 the integration seam for a vision-capable model and a real VNC environment.
+
+The browser E2E script starts an isolated local Planner and Vite frontend,
+then checks the manual action-manifest path from proposal creation through
+approval, execution, and timeline rendering. The launcher prefers a locally
+installed Google Chrome or Microsoft Edge when available; otherwise install
+Playwright Chromium once before the first run:
+
+```bash
+.venv/bin/python -m playwright install chromium
+```
 
 Executor drivers are selected with `PLOVER_EXECUTOR_DRIVER=mock|linux|windows|macos`.
 macOS uses `pyautogui` and requires Accessibility and Screen Recording

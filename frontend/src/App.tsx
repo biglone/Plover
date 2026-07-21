@@ -169,7 +169,11 @@ function ActionList({
 
 function StepList({ steps, title }: { steps: Step[]; title: string }) {
   return (
-    <section className="rounded-[28px] border border-moss/15 bg-white/70 p-5 shadow-panel">
+    <section
+      aria-label={`${title} steps`}
+      className="rounded-[28px] border border-moss/15 bg-white/70 p-5 shadow-panel"
+      data-testid={`${title.toLowerCase()}-steps`}
+    >
       <div className="mb-4 flex items-center justify-between">
         <h3 className="font-display text-lg text-ink">{title}</h3>
         <span className="rounded-full bg-mist px-3 py-1 text-xs font-medium uppercase tracking-[0.2em] text-moss">
@@ -304,7 +308,11 @@ function ProposalCard({
 }) {
   const canAct = proposal.status === "pending" && onApprove && onReject;
   return (
-    <section className="rounded-[28px] border border-clay/25 bg-[#fff8f3] p-5 shadow-panel">
+    <section
+      aria-label="Proposal details"
+      className="rounded-[28px] border border-clay/25 bg-[#fff8f3] p-5 shadow-panel"
+      data-testid="proposal-card"
+    >
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-clay">Proposal</p>
@@ -849,6 +857,7 @@ export default function App() {
               </div>
               <form className="space-y-4" onSubmit={handleCreateRun}>
                 <textarea
+                  aria-label="Task prompt"
                   className="min-h-36 w-full rounded-[24px] border border-moss/10 bg-canvas px-4 py-4 text-sm leading-7 text-ink outline-none ring-0 transition focus:border-moss/30"
                   value={task}
                   onChange={(event) => setTask(event.target.value)}
@@ -1247,6 +1256,7 @@ export default function App() {
                 </span>
               </div>
               <textarea
+                aria-label="Manual pending instructions"
                 className="mt-4 min-h-32 w-full rounded-[24px] border border-moss/10 bg-canvas px-4 py-4 text-sm leading-7 text-ink outline-none transition focus:border-moss/30"
                 disabled={!run}
                 value={manualEditText}
@@ -1267,6 +1277,7 @@ export default function App() {
                   </span>
                 </div>
                 <textarea
+                  aria-label="Manual action manifest"
                   className="mt-3 min-h-40 w-full rounded-[24px] border border-moss/10 bg-[#1f2e29] px-4 py-4 font-mono text-xs leading-6 text-[#e8f0e8] outline-none transition focus:border-clay/50"
                   disabled={!run}
                   onChange={(event) => setManualActionManifestText(event.target.value)}
@@ -1316,7 +1327,11 @@ export default function App() {
               </div>
             </section>
 
-            <section className="rounded-[30px] border border-moss/10 bg-white/72 p-5 shadow-panel md:p-6">
+            <section
+              aria-label="Run timeline"
+              className="rounded-[30px] border border-moss/10 bg-white/72 p-5 shadow-panel md:p-6"
+              data-testid="run-timeline"
+            >
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.2em] text-clay">Run timeline</p>

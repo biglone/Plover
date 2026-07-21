@@ -86,21 +86,36 @@ class StepAction:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "StepAction":
+        kind = data.get("kind")
+        if not isinstance(kind, str):
+            raise ValueError("step action kind must be a string")
         keys = data.get("keys", [])
         if isinstance(keys, tuple):
             keys = list(keys)
-        if not isinstance(keys, list):
+        if not isinstance(keys, list) or not all(isinstance(key, str) for key in keys):
             raise ValueError("step action keys must be a list")
+
+        def optional_int(name: str) -> int | None:
+            value = data.get(name)
+            if value is None:
+                return None
+            if not isinstance(value, int) or isinstance(value, bool):
+                raise ValueError(f"step action {name} must be an integer")
+            return value
+
+        text = data.get("text")
+        if text is not None and not isinstance(text, str):
+            raise ValueError("step action text must be a string")
         return cls(
-            kind=str(data["kind"]),
-            x=data.get("x"),
-            y=data.get("y"),
-            end_x=data.get("end_x"),
-            end_y=data.get("end_y"),
-            text=data.get("text"),
-            keys=tuple(str(key) for key in keys),
-            delta=data.get("delta"),
-            milliseconds=data.get("milliseconds"),
+            kind=kind,
+            x=optional_int("x"),
+            y=optional_int("y"),
+            end_x=optional_int("end_x"),
+            end_y=optional_int("end_y"),
+            text=text,
+            keys=tuple(keys),
+            delta=optional_int("delta"),
+            milliseconds=optional_int("milliseconds"),
         )
 
 

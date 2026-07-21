@@ -9,7 +9,7 @@ from uuid import uuid4
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
-from plover_core.models import Annotation, PlanState, PlanStep, PlanVersion, Proposal, ReplanCause
+from plover_core.models import Annotation, PlanState, PlanStep, PlanVersion, Proposal, ReplanCause, StepAction
 from plover_core.plan import PlanInvariantError, approve_proposal, complete_next_step, fail_next_step, replace_pending
 from plover_core.safety import inspect_text
 from plover_core.xml_plan import PlanParseError
@@ -50,8 +50,15 @@ class FailureRequest(BaseModel):
     rationale: str | None = Field(default=None, max_length=2000)
 
 
+class ManualStepRequest(BaseModel):
+    instruction: str = Field(min_length=1, max_length=2000)
+    ui_summary: str | None = Field(default=None, max_length=500)
+    actions: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
+
+
 class ManualEditRequest(BaseModel):
-    instructions: list[str] = Field(min_length=1, max_length=20)
+    instructions: list[str] = Field(default_factory=list, max_length=20)
+    steps: list[ManualStepRequest] = Field(default_factory=list, max_length=20)
     rationale: str | None = Field(default=None, max_length=2000)
 
 
@@ -77,7 +84,34 @@ def _annotation(request: AnnotationRequest | None) -> Annotation | None:
     )
 
 
-def _manual_pending(instructions: list[str]) -> tuple[PlanStep, ...]:
+def _manual_pending(
+    *,
+    instructions: list[str],
+    steps: list[ManualStepRequest],
+) -> tuple[PlanStep, ...]:
+    if instructions and steps:
+        raise HTTPException(status_code=422, detail="provide either instructions or structured steps, not both")
+    if steps:
+        pending: list[PlanStep] = []
+        for step in steps:
+            instruction = step.instruction.strip()
+            safety = inspect_text(instruction)
+            if not safety.allowed:
+                raise HTTPException(status_code=409, detail=safety.reason)
+            try:
+                actions = tuple(StepAction.from_dict(action) for action in step.actions)
+            except (KeyError, ValueError) as error:
+                raise HTTPException(status_code=422, detail=f"invalid structured step action: {error}") from error
+            pending.append(
+                PlanStep(
+                    f"step-{uuid4().hex[:8]}",
+                    instruction,
+                    ui_summary=step.ui_summary,
+                    actions=actions,
+                )
+            )
+        return tuple(pending)
+
     normalized = tuple(instruction.strip() for instruction in instructions if instruction.strip())
     if not normalized:
         raise HTTPException(status_code=422, detail="at least one non-empty pending step is required")
@@ -320,7 +354,10 @@ def create_app(
         run = get_run(run_id)
         current = run.active_version()
         try:
-            pending = _manual_pending(request.instructions)
+            pending = _manual_pending(
+                instructions=request.instructions,
+                steps=request.steps,
+            )
             updated_plan = replace_pending(current.plan, pending)
         except PlanInvariantError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error

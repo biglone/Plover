@@ -205,6 +205,60 @@ class PlannerServiceTests(unittest.TestCase):
             ],
         )
 
+    def test_manual_edit_accepts_structured_executor_actions(self) -> None:
+        run = self.client.post("/api/runs", json={"task": "Open a report"}).json()
+
+        response = self.client.post(
+            f"/api/runs/{run['id']}/manual-edit",
+            json={
+                "steps": [
+                    {
+                        "instruction": "Open the report search",
+                        "ui_summary": "Clicking the report search field",
+                        "actions": [
+                            {"kind": "click", "x": 33, "y": 44},
+                            {"kind": "type", "text": "Quarterly report"},
+                            {"kind": "observe"},
+                        ],
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+        proposal = response.json()
+        pending = proposal["version"]["plan"]["pending"]
+        self.assertEqual(pending[0]["ui_summary"], "Clicking the report search field")
+        self.assertEqual(
+            pending[0]["actions"],
+            [
+                {"kind": "click", "x": 33, "y": 44},
+                {"kind": "type", "text": "Quarterly report"},
+                {"kind": "observe"},
+            ],
+        )
+
+        approved = self.client.post(
+            f"/api/runs/{run['id']}/proposals/{proposal['id']}/approve",
+        ).json()
+        executed = self.client.post(f"/api/runs/{run['id']}/execute-next").json()
+        self.assertEqual(approved["status"], "running")
+        self.assertIn("Clicking at (33, 44)", executed["active_version"]["plan"]["completed"][0]["ui_summary"])
+
+    def test_manual_edit_rejects_mixed_instruction_and_structured_step_inputs(self) -> None:
+        run = self.client.post("/api/runs", json={"task": "Open a report"}).json()
+
+        response = self.client.post(
+            f"/api/runs/{run['id']}/manual-edit",
+            json={
+                "instructions": ["Click the export menu"],
+                "steps": [{"instruction": "Open the report search", "actions": [{"kind": "observe"}]}],
+            },
+        )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("either instructions or structured steps", response.json()["detail"])
+
     def test_manual_edit_rejects_empty_steps(self) -> None:
         run = self.client.post("/api/runs", json={"task": "Open a report"}).json()
 

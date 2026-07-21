@@ -187,6 +187,10 @@ export default function VncViewer({ runId, onConnectionChange }: VncViewerProps)
             <div className="max-w-md">
               <p className="font-display text-xl">Remote desktop disconnected</p>
               <p className="mt-2 text-sm leading-6 text-white/60">{error ?? "The VNC session has ended."}</p>
+              <p className="mt-2 text-sm leading-6 text-white/50">
+                Switch to <span className="font-semibold text-white/80">Annotate screenshot</span> to review
+                executor screenshots when no VNC target is configured.
+              </p>
               <button
                 className="mt-4 rounded-full bg-clay px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#b95f36]"
                 onClick={() => setRetryToken((value) => value + 1)}

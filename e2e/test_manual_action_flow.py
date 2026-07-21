@@ -25,6 +25,8 @@ class ManualActionFlowE2ETests(unittest.TestCase):
                 page.get_by_label("Task prompt").fill("Open the E2E report")
                 page.get_by_role("button", name="Generate plan").click()
                 expect(page.get_by_text("Pending", exact=True)).to_be_visible()
+                expect(page.get_by_test_id("annotation-canvas")).to_be_visible()
+                self.assertEqual(page.get_by_text("Remote desktop disconnected").count(), 0)
 
                 page.get_by_label("Manual pending instructions").fill("Open the E2E report")
                 page.get_by_label("Manual action manifest").fill(

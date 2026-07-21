@@ -379,7 +379,7 @@ export default function App() {
   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null);
   const [liveImageUrl, setLiveImageUrl] = useState<string | null>(null);
   const [liveConnected, setLiveConnected] = useState(false);
-  const [liveMode, setLiveMode] = useState<"remote" | "annotate">("remote");
+  const [liveMode, setLiveMode] = useState<"remote" | "annotate">("annotate");
   const [resumeNote, setResumeNote] = useState("");
   const [statusNote, setStatusNote] = useState("");
   const [failureType, setFailureType] = useState("REPEAT_CLICK_MENU");
@@ -512,7 +512,7 @@ export default function App() {
     if (!run) {
       setLiveImageUrl(null);
       setLiveConnected(false);
-      setLiveMode("remote");
+      setLiveMode("annotate");
       setManualEditText("");
       setManualActionManifestText("");
       setSelectedProposalId(null);
@@ -537,6 +537,9 @@ export default function App() {
   useEffect(() => {
     if (!run) {
       return;
+    }
+    if (run.live_view.image_url) {
+      setLiveMode("annotate");
     }
     setLiveImageUrl(run.live_view.image_url);
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";

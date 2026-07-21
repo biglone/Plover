@@ -30,6 +30,21 @@ function formatEventType(type: string): string {
   return type.split("_").join(" ");
 }
 
+function shortId(value: string): string {
+  if (value.length <= 14) {
+    return value;
+  }
+  return `${value.slice(0, 10)}...${value.slice(-4)}`;
+}
+
+function formatTimestamp(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  return parsed.toLocaleString();
+}
+
 function resumePrompt(stop: RunState["active_safety_stop"]): string {
   if (!stop) {
     return "";
@@ -374,6 +389,19 @@ export default function App() {
     () => proposals.filter((proposal) => proposal.status !== "pending"),
     [proposals]
   );
+  const timelineVersions = useMemo(
+    () =>
+      [...(run?.versions ?? [])].sort(
+        (left, right) => new Date(left.created_at).getTime() - new Date(right.created_at).getTime()
+      ),
+    [run?.versions]
+  );
+  const proposalsByBaseVersion = useMemo(() => {
+    return proposals.reduce<Record<string, Proposal[]>>((groups, proposal) => {
+      groups[proposal.base_version_id] = [...(groups[proposal.base_version_id] ?? []), proposal];
+      return groups;
+    }, {});
+  }, [proposals]);
   const hasPendingProposals = pendingProposals.length > 0;
   const selectedProposal = useMemo(
     () =>
@@ -1217,23 +1245,48 @@ export default function App() {
                 ) : null}
               </div>
               <div className="mt-6 space-y-4">
-                {run?.versions.map((version, index) => (
+                {run ? timelineVersions.map((version, index) => {
+                  const branchProposals = proposalsByBaseVersion[version.id] ?? [];
+                  const isActive = run.active_version_id === version.id;
+                  return (
                   <div key={version.id} className="flex gap-4">
                     <div className="flex w-16 flex-col items-center">
-                      <div className="flex h-11 w-11 items-center justify-center rounded-full border-2 border-moss bg-mist font-display text-sm text-moss">
+                      <div
+                        className={`flex h-11 w-11 items-center justify-center rounded-full border-2 font-display text-sm ${
+                          isActive
+                            ? "border-clay bg-clay/10 text-clay"
+                            : "border-moss bg-mist text-moss"
+                        }`}
+                      >
                         {index + 1}
                       </div>
-                      {index < run.versions.length - 1 ? <div className="mt-2 h-full w-px bg-moss/20" /> : null}
+                      {index < timelineVersions.length - 1 ? <div className="mt-2 h-full w-px bg-moss/20" /> : null}
                     </div>
-                    <div className="flex-1 rounded-[24px] border border-moss/10 bg-canvas/75 p-4">
+                    <div className="flex-1 space-y-3">
+                    <div className="rounded-[24px] border border-moss/10 bg-canvas/75 p-4">
                       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                         <div>
                           <p className="text-sm font-semibold capitalize text-moss">{formatCause(version.cause)}</p>
-                          <p className="text-xs uppercase tracking-[0.2em] text-ink/45">{version.id}</p>
+                          <p className="text-xs uppercase tracking-[0.2em] text-ink/45">{shortId(version.id)}</p>
                         </div>
-                        <div className="text-xs text-ink/55">
-                          {version.plan.completed.length} completed / {version.plan.pending.length} pending
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-ink/55">
+                          <span>
+                            {version.plan.completed.length} completed / {version.plan.pending.length} pending
+                          </span>
+                          {isActive ? (
+                            <span className="rounded-full bg-clay/10 px-3 py-1 font-semibold uppercase tracking-[0.16em] text-clay">
+                              active
+                            </span>
+                          ) : null}
                         </div>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2 text-xs text-ink/55">
+                        <span className="rounded-full bg-white px-3 py-1 shadow-sm">
+                          Created {formatTimestamp(version.created_at)}
+                        </span>
+                        <span className="rounded-full bg-white px-3 py-1 shadow-sm">
+                          Parent {version.parent_id ? shortId(version.parent_id) : "root"}
+                        </span>
                       </div>
                       <div className="mt-3 flex flex-wrap gap-2">
                         {version.derived_constraints.map((constraint) => (
@@ -1246,8 +1299,46 @@ export default function App() {
                         ))}
                       </div>
                     </div>
+                    {branchProposals.length ? (
+                      <div className="space-y-2 pl-2">
+                        {branchProposals.map((proposal) => (
+                          <button
+                            key={proposal.id}
+                            className={`w-full rounded-[20px] border px-4 py-3 text-left transition ${
+                              selectedProposalId === proposal.id
+                                ? "border-clay/35 bg-[#fff8f3]"
+                                : "border-clay/12 bg-white/75 hover:bg-white"
+                            }`}
+                            onClick={() => setSelectedProposalId(proposal.id)}
+                            type="button"
+                          >
+                            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                              <div>
+                                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-clay">
+                                  Proposal branch
+                                </p>
+                                <p className="mt-1 text-sm font-semibold text-ink">{proposal.summary}</p>
+                                <p className="mt-1 text-xs text-ink/55">
+                                  {shortId(proposal.id)} {"->"} {shortId(proposal.version.id)}
+                                </p>
+                              </div>
+                              <div className="flex flex-wrap gap-2 text-xs">
+                                <span className="rounded-full bg-white px-3 py-1 text-moss shadow-sm">
+                                  {formatCause(proposal.version.cause)}
+                                </span>
+                                <span className="rounded-full bg-white px-3 py-1 text-clay shadow-sm">
+                                  {proposal.status}
+                                </span>
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                    </div>
                   </div>
-                )) ?? <p className="text-sm text-ink/60">Create a run to start the timeline.</p>}
+                );
+                }) : <p className="text-sm text-ink/60">Create a run to start the timeline.</p>}
               </div>
             </section>
           </section>

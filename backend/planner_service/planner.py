@@ -10,6 +10,7 @@ from plover_core.models import (
     PlanVersion,
     Proposal,
     ReplanCause,
+    StepAction,
 )
 from plover_core.plan import replace_pending
 from planner_service.store import utc_now
@@ -20,9 +21,13 @@ class DeterministicPlanner:
 
     def create_initial(self, task: str) -> PlanVersion:
         steps = (
-            PlanStep("step-1", "Capture the current screen before acting"),
-            PlanStep("step-2", f"Perform the requested task: {task}"),
-            PlanStep("step-3", "Verify the visible outcome and stop"),
+            PlanStep("step-1", "Capture the current screen before acting", actions=(StepAction("observe"),)),
+            PlanStep(
+                "step-2",
+                f"Perform the requested task: {task}",
+                actions=(StepAction("wait", milliseconds=250), StepAction("observe")),
+            ),
+            PlanStep("step-3", "Verify the visible outcome and stop", actions=(StepAction("observe"),)),
         )
         return PlanVersion(
             id=f"version-{uuid4().hex[:10]}",
@@ -56,6 +61,14 @@ class DeterministicPlanner:
             )
             cause = ReplanCause.ANNOTATION
             constraints = (f"Use annotation bbox {bbox}", "Preserve completed steps")
+            actions = (
+                StepAction(
+                    "click",
+                    x=annotation.x + (annotation.width // 2),
+                    y=annotation.y + (annotation.height // 2),
+                ),
+                StepAction("observe"),
+            )
         elif failure_type:
             instruction = "Change tactic and retry the failed action using the current screen"
             summary = "Change tactic and retry the failed action"
@@ -65,6 +78,7 @@ class DeterministicPlanner:
             )
             cause = ReplanCause.SYSTEM_DRIVEN_IR
             constraints = (f"Recover from {failure_type}", "Preserve completed steps")
+            actions = ()
         else:
             normalized = (guidance or "Revise the pending action using the current screen").strip()
             instruction = normalized[0].upper() + normalized[1:]
@@ -72,9 +86,16 @@ class DeterministicPlanner:
             default_rationale = "The guidance changes only the editable remainder of the plan."
             cause = ReplanCause.USER_GUIDANCE
             constraints = ("Apply user guidance to pending steps only", "Preserve completed steps")
+            actions = ()
 
-        pending = [PlanStep(f"step-{uuid4().hex[:8]}", instruction)]
-        pending.append(PlanStep(f"step-{uuid4().hex[:8]}", "Verify the visible outcome and stop"))
+        pending = [PlanStep(f"step-{uuid4().hex[:8]}", instruction, actions=actions)]
+        pending.append(
+            PlanStep(
+                f"step-{uuid4().hex[:8]}",
+                "Verify the visible outcome and stop",
+                actions=(StepAction("observe"),),
+            )
+        )
         new_plan = replace_pending(current.plan, pending)
         version = PlanVersion(
             id=f"version-{uuid4().hex[:10]}",

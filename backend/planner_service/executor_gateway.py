@@ -12,7 +12,7 @@ from executor_service import executor_pb2
 from executor_service import executor_pb2_grpc
 from executor_service.driver import MockEnvironmentDriver, SCREEN_HEIGHT, SCREEN_WIDTH
 from executor_service.service import ExecutorService
-from plover_core.models import PlanStep
+from plover_core.models import PlanStep, StepAction
 from planner_service.observation_source import (
     LiveObservation,
     ObservationSource,
@@ -109,27 +109,6 @@ class LocalExecutorGateway:
             if event.kind in {"action_started", "action_completed", "failure_detected"}
         )
 
-    def _actions_for(self, step: PlanStep) -> list[executor_pb2.Action]:
-        instruction = step.instruction.lower()
-        if "capture" in instruction or "screen" in instruction or "verify" in instruction:
-            return [executor_pb2.Action(observe=executor_pb2.ObserveAction())]
-        if "type" in instruction or "enter" in instruction:
-            return [executor_pb2.Action(keyboard=executor_pb2.KeyboardAction(text=step.instruction[:48]))]
-        if "click" in instruction or "select" in instruction or "choose" in instruction:
-            return [
-                executor_pb2.Action(
-                    pointer=executor_pb2.PointerAction(
-                        kind=executor_pb2.PointerAction.CLICK,
-                        x=420,
-                        y=280,
-                    )
-                )
-            ]
-        return [
-            executor_pb2.Action(wait=executor_pb2.WaitAction(milliseconds=250)),
-            executor_pb2.Action(observe=executor_pb2.ObserveAction()),
-        ]
-
     def execute_step(self, run_id: str, step: PlanStep) -> ExecutorResult:
         driver = self._driver_for(run_id)
         driver.screenshot_bytes = _placeholder_png(
@@ -144,7 +123,7 @@ class LocalExecutorGateway:
             executor_pb2.ExecuteRequest(
                 run_id=run_id,
                 step_id=step.id,
-                actions=self._actions_for(step),
+                actions=actions_for_step(step),
             ),
             None,
         )
@@ -179,8 +158,56 @@ class LocalExecutorGateway:
         )
 
 
+def _action_message(action: StepAction) -> executor_pb2.Action:
+    if action.kind == "click":
+        return executor_pb2.Action(
+            pointer=executor_pb2.PointerAction(
+                kind=executor_pb2.PointerAction.CLICK,
+                x=action.x,
+                y=action.y,
+            )
+        )
+    if action.kind == "double_click":
+        return executor_pb2.Action(
+            pointer=executor_pb2.PointerAction(
+                kind=executor_pb2.PointerAction.DOUBLE_CLICK,
+                x=action.x,
+                y=action.y,
+            )
+        )
+    if action.kind == "move":
+        return executor_pb2.Action(
+            pointer=executor_pb2.PointerAction(
+                kind=executor_pb2.PointerAction.MOVE,
+                x=action.x,
+                y=action.y,
+            )
+        )
+    if action.kind == "drag":
+        return executor_pb2.Action(
+            pointer=executor_pb2.PointerAction(
+                kind=executor_pb2.PointerAction.DRAG,
+                x=action.x,
+                y=action.y,
+                end_x=action.end_x,
+                end_y=action.end_y,
+            )
+        )
+    if action.kind == "type":
+        return executor_pb2.Action(keyboard=executor_pb2.KeyboardAction(text=action.text))
+    if action.kind == "keys":
+        return executor_pb2.Action(keyboard=executor_pb2.KeyboardAction(keys=action.keys))
+    if action.kind == "scroll":
+        return executor_pb2.Action(scroll=executor_pb2.ScrollAction(delta=action.delta))
+    if action.kind == "wait":
+        return executor_pb2.Action(wait=executor_pb2.WaitAction(milliseconds=action.milliseconds))
+    return executor_pb2.Action(observe=executor_pb2.ObserveAction())
+
+
 def actions_for_step(step: PlanStep) -> list[executor_pb2.Action]:
     """Compile the deterministic prototype step language into executor primitives."""
+    if step.actions:
+        return [_action_message(action) for action in step.actions]
     instruction = step.instruction.lower()
     if "capture" in instruction or "screen" in instruction or "verify" in instruction:
         return [executor_pb2.Action(observe=executor_pb2.ObserveAction())]

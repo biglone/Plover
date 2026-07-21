@@ -90,6 +90,7 @@ You can still run the checks manually:
 PYTHONPATH=backend .venv/bin/python -m unittest discover -s backend/tests -v
 ./scripts/run_acceptance.sh
 npm --prefix frontend run build
+./scripts/run_quality_gate.sh
 ```
 
 The default planner and executor are deterministic local implementations so

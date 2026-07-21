@@ -57,6 +57,7 @@ You can still run checks manually:
 PYTHONPATH=backend .venv/bin/python -m unittest discover -s backend/tests -v
 ./scripts/run_acceptance.sh
 npm --prefix frontend run build
+./scripts/run_quality_gate.sh
 ./scripts/run_browser_e2e.sh
 ./scripts/run_browser_recovery_e2e.sh
 ./scripts/run_browser_safety_e2e.sh
@@ -88,6 +89,10 @@ outside the agent.
 `./scripts/run_browser_annotation_e2e.sh` covers screenshot-grounded repair:
 draw a bounding box, generate an annotation proposal, approve it, and execute
 the repaired pending suffix.
+
+`./scripts/run_quality_gate.sh` runs the backend test suite, production
+frontend build, and all browser E2E flows serially. The same quality gate runs
+on every GitHub pull request and push through `.github/workflows/quality-gate.yml`.
 
 Executor drivers are selected with `PLOVER_EXECUTOR_DRIVER=mock|linux|windows|macos`.
 macOS uses `pyautogui` and requires Accessibility and Screen Recording

@@ -70,6 +70,11 @@ The compose stack serves the frontend on `http://127.0.0.1:3000` and proxies
 Planner and its WebSocket routes through the same origin.
 It uses the mock executor by default; to drive a real macOS desktop, keep the
 Executor on the host and point Planner at it with `PLOVER_EXECUTOR_TARGET`.
+On macOS, you can launch the host Executor plus Dockerized Planner and
+frontend with `./scripts/start_macos_host_executor.sh`.
+That launcher starts the Executor on the host at `0.0.0.0:50051`, points
+Planner at `host.docker.internal:50051`, and then runs
+`docker compose -f docker-compose.host-executor.yml up --build`.
 
 You can still run the checks manually:
 

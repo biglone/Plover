@@ -78,6 +78,14 @@ PLOVER_DATABASE_PATH=./data/plover.sqlite3 \
 PYTHONPATH=backend .venv/bin/python -m planner_service
 ```
 
+For multi-process deployments, set `PLOVER_DATABASE_URL` to a SQLite or
+PostgreSQL DSN:
+
+```bash
+PLOVER_DATABASE_URL=postgresql://plover:secret@db.example.com/plover \
+PYTHONPATH=backend .venv/bin/python -m planner_service
+```
+
 Set `PLOVER_LLM_ENDPOINT` to switch Planner to the OpenAI-compatible vision
 model adapter. `PLOVER_LLM_MODEL` defaults to `computer-use`,
 `PLOVER_LLM_API_KEY` is optional for local endpoints, and header-based auth can
@@ -108,6 +116,11 @@ PLOVER_LLM_BOOTSTRAP_HEADER_NAME=Authorization \
 PLOVER_LLM_BOOTSTRAP_HEADER_PREFIX='Bearer ' \
 PYTHONPATH=backend .venv/bin/python -m planner_service
 ```
+
+For providers that need multiple bootstrap hops, set
+`PLOVER_LLM_BOOTSTRAP_FLOW` to a JSON array of request steps. Each step can
+capture JSON fields into later `${var}` placeholders, and cookies still persist
+across the whole flow.
 
 Model responses must contain the `<analysis>` and `<steps>` XML blocks. Invalid
 XML or a response that changes completed history is rejected and recorded
@@ -142,13 +155,3 @@ paths:
 
 - Resume after the user handled the blocked interaction outside the agent.
 - Submit a clarification that produces a localized pending-suffix proposal.
-
-## Integration Boundaries
-
-- Add provider-specific multi-step login orchestration if the target
-  deployment needs more than header bootstrap, expiry refresh, and automatic
-  cookie persistence.
-- Route executor `failure_type` responses to
-  `POST /api/runs/{run_id}/failures` to surface a system-driven IR proposal.
-- Move SQLite to Postgres or another shared database for multi-process
-  deployment.

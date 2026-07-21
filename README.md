@@ -49,6 +49,13 @@ provides the secret when needed, `PLOVER_LLM_API_KEY_HEADER` and
 `PLOVER_LLM_API_KEY_PREFIX` customize how that secret is sent, and
 `PLOVER_LLM_EXTRA_HEADERS` accepts a JSON object of provider-specific headers.
 Set `PLOVER_LLM_STREAM=1` to consume OpenAI-compatible SSE streaming responses.
+If the provider requires a session bootstrap or token refresh step, configure
+`PLOVER_LLM_BOOTSTRAP_ENDPOINT` plus the optional
+`PLOVER_LLM_BOOTSTRAP_METHOD`, `PLOVER_LLM_BOOTSTRAP_HEADERS`,
+`PLOVER_LLM_BOOTSTRAP_BODY`, `PLOVER_LLM_BOOTSTRAP_TOKEN_PATH`,
+`PLOVER_LLM_BOOTSTRAP_EXPIRES_IN_PATH`,
+`PLOVER_LLM_BOOTSTRAP_HEADER_NAME`, and
+`PLOVER_LLM_BOOTSTRAP_HEADER_PREFIX` settings.
 Without `PLOVER_LLM_ENDPOINT`, the deterministic local planner is used.
 
 Set `PLOVER_VNC_TARGET=host:port` to expose a raw VNC WebSocket bridge at

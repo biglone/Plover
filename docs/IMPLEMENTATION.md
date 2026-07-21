@@ -76,7 +76,10 @@ model adapter. `PLOVER_LLM_MODEL` defaults to `computer-use`,
 `PLOVER_LLM_API_KEY` is optional for local endpoints, and header-based auth can
 be customized with `PLOVER_LLM_API_KEY_HEADER`,
 `PLOVER_LLM_API_KEY_PREFIX`, and `PLOVER_LLM_EXTRA_HEADERS`. Set
-`PLOVER_LLM_STREAM=1` to consume SSE chat-completions responses:
+`PLOVER_LLM_STREAM=1` to consume SSE chat-completions responses. For providers
+that need a bootstrap or refresh call before chat completions, configure
+`PLOVER_LLM_BOOTSTRAP_ENDPOINT` and its companion settings for method, headers,
+body, token path, expiry path, and injected header naming:
 
 ```bash
 PLOVER_LLM_ENDPOINT=http://127.0.0.1:9000/v1/chat/completions \
@@ -86,6 +89,14 @@ PLOVER_LLM_API_KEY_HEADER=Authorization \
 PLOVER_LLM_API_KEY_PREFIX='Bearer ' \
 PLOVER_LLM_EXTRA_HEADERS='{"x-deployment":"staging"}' \
 PLOVER_LLM_STREAM=1 \
+PLOVER_LLM_BOOTSTRAP_ENDPOINT=http://127.0.0.1:9000/session \
+PLOVER_LLM_BOOTSTRAP_METHOD=POST \
+PLOVER_LLM_BOOTSTRAP_HEADERS='{"x-bootstrap":"true"}' \
+PLOVER_LLM_BOOTSTRAP_BODY='{"grant_type":"client_credentials"}' \
+PLOVER_LLM_BOOTSTRAP_TOKEN_PATH='session.access_token' \
+PLOVER_LLM_BOOTSTRAP_EXPIRES_IN_PATH='session.expires_in' \
+PLOVER_LLM_BOOTSTRAP_HEADER_NAME=Authorization \
+PLOVER_LLM_BOOTSTRAP_HEADER_PREFIX='Bearer ' \
 PYTHONPATH=backend .venv/bin/python -m planner_service
 ```
 
@@ -125,8 +136,8 @@ paths:
 
 ## Integration Boundaries
 
-- Add provider-specific token refresh or session bootstrap logic if the target
-  deployment needs more than static headers.
+- Add provider-specific cookie persistence or multi-step login orchestration if
+  the target deployment needs more than header bootstrap plus expiry refresh.
 - Route executor `failure_type` responses to
   `POST /api/runs/{run_id}/failures` to surface a system-driven IR proposal.
 - Replace the local Executor screenshot source behind the screenshot WebSocket

@@ -11,6 +11,9 @@ This repository contains a runnable first vertical slice of the design in
 - Planner REST API for creating runs, requesting natural-language or annotated
   replans, proposing direct manual edits, approving proposals, and progressing
   steps.
+- XML planner responses can now attach structured executor primitives inside
+  each step, and the executor prefers those explicit actions over keyword-based
+  fallbacks.
 - Screenshot retention capped at the three most recent artifacts per run and
   forwarded as visual context for model-driven repair proposals.
 - SQLite persistence for plans, proposals, timeline events, screenshots, and

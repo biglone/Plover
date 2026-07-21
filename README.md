@@ -91,6 +91,8 @@ Set `PLOVER_LLM_ENDPOINT` to use the XML-validated vision-model planner.
 provides the secret when needed, `PLOVER_LLM_API_KEY_HEADER` and
 `PLOVER_LLM_API_KEY_PREFIX` customize how that secret is sent, and
 `PLOVER_LLM_EXTRA_HEADERS` accepts a JSON object of provider-specific headers.
+Planner responses may include optional `<actions>` blocks so executor steps can
+carry explicit pointer, keyboard, scroll, wait, and observe primitives.
 Set `PLOVER_LLM_STREAM=1` to consume OpenAI-compatible SSE streaming responses.
 If the provider requires a session bootstrap or token refresh step, configure
 `PLOVER_LLM_BOOTSTRAP_ENDPOINT` plus the optional

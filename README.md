@@ -43,9 +43,13 @@ permissions for the terminal or Executor process.
 Set `PLOVER_DATABASE_PATH=./data/plover.sqlite3` to persist Planner runs,
 proposals, screenshots, and timeline events across service restarts.
 
-Set `PLOVER_LLM_ENDPOINT` to use the XML-validated vision-model planner;
-`PLOVER_LLM_MODEL` and `PLOVER_LLM_API_KEY` configure the model and optional
-authentication. Without it, the deterministic local planner is used.
+Set `PLOVER_LLM_ENDPOINT` to use the XML-validated vision-model planner.
+`PLOVER_LLM_MODEL` selects the chat-completions model, `PLOVER_LLM_API_KEY`
+provides the secret when needed, `PLOVER_LLM_API_KEY_HEADER` and
+`PLOVER_LLM_API_KEY_PREFIX` customize how that secret is sent, and
+`PLOVER_LLM_EXTRA_HEADERS` accepts a JSON object of provider-specific headers.
+Set `PLOVER_LLM_STREAM=1` to consume OpenAI-compatible SSE streaming responses.
+Without `PLOVER_LLM_ENDPOINT`, the deterministic local planner is used.
 
 Set `PLOVER_VNC_TARGET=host:port` to expose a raw VNC WebSocket bridge at
 `/api/runs/{run_id}/vnc`. The React Live View uses noVNC to provide interactive

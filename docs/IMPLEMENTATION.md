@@ -72,13 +72,20 @@ PYTHONPATH=backend .venv/bin/python -m planner_service
 ```
 
 Set `PLOVER_LLM_ENDPOINT` to switch Planner to the OpenAI-compatible vision
-model adapter. `PLOVER_LLM_MODEL` defaults to `computer-use`, and
-`PLOVER_LLM_API_KEY` is optional for local endpoints:
+model adapter. `PLOVER_LLM_MODEL` defaults to `computer-use`,
+`PLOVER_LLM_API_KEY` is optional for local endpoints, and header-based auth can
+be customized with `PLOVER_LLM_API_KEY_HEADER`,
+`PLOVER_LLM_API_KEY_PREFIX`, and `PLOVER_LLM_EXTRA_HEADERS`. Set
+`PLOVER_LLM_STREAM=1` to consume SSE chat-completions responses:
 
 ```bash
 PLOVER_LLM_ENDPOINT=http://127.0.0.1:9000/v1/chat/completions \
 PLOVER_LLM_MODEL=computer-use \
 PLOVER_LLM_API_KEY=replace-me \
+PLOVER_LLM_API_KEY_HEADER=Authorization \
+PLOVER_LLM_API_KEY_PREFIX='Bearer ' \
+PLOVER_LLM_EXTRA_HEADERS='{"x-deployment":"staging"}' \
+PLOVER_LLM_STREAM=1 \
 PYTHONPATH=backend .venv/bin/python -m planner_service
 ```
 
@@ -118,8 +125,8 @@ paths:
 
 ## Integration Boundaries
 
-- Add provider-specific authentication and streaming to the
-  OpenAI-compatible vision-model adapter if required by the deployment.
+- Add provider-specific token refresh or session bootstrap logic if the target
+  deployment needs more than static headers.
 - Route executor `failure_type` responses to
   `POST /api/runs/{run_id}/failures` to surface a system-driven IR proposal.
 - Replace the local Executor screenshot source behind the screenshot WebSocket

@@ -1,6 +1,9 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
+const plannerOrigin = process.env.PLOVER_PLANNER_ORIGIN ?? "http://127.0.0.1:8000";
+const frontendPort = Number.parseInt(process.env.PLOVER_FRONTEND_PORT ?? "5173", 10);
+
 export default defineConfig({
   plugins: [react()],
   build: {
@@ -12,10 +15,10 @@ export default defineConfig({
     }
   },
   server: {
-    port: 5173,
+    port: Number.isNaN(frontendPort) ? 5173 : frontendPort,
     proxy: {
-      "/api": "http://127.0.0.1:8000",
-      "/health": "http://127.0.0.1:8000"
+      "/api": plannerOrigin,
+      "/health": plannerOrigin
     }
   }
 });

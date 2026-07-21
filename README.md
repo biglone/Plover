@@ -35,6 +35,17 @@ npm --prefix frontend install
 the Vite frontend together, and writes logs under `.plover-dev/`. Stop the
 whole local stack with `Ctrl-C`.
 
+For containers, run:
+
+```bash
+docker compose up --build
+```
+
+The compose stack serves the frontend on `http://127.0.0.1:3000` and proxies
+Planner and its WebSocket routes through the same origin.
+It uses the mock executor by default; to drive a real macOS desktop, keep the
+Executor on the host and point Planner at it with `PLOVER_EXECUTOR_TARGET`.
+
 You can still run checks manually:
 
 ```bash

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from string import Template
 import time
 from dataclasses import dataclass, field
 from http.cookies import SimpleCookie
@@ -40,9 +41,46 @@ def _resolve_json_path(data: Any, path: str) -> Any:
     return current
 
 
+def _json_object(raw: str | None, *, env_name: str) -> dict[str, str]:
+    if not raw:
+        return {}
+    parsed = json.loads(raw)
+    if not isinstance(parsed, dict):
+        raise RuntimeError(f"{env_name} must be a JSON object")
+    return {str(key): str(value) for key, value in parsed.items()}
+
+
+def _template_value(value: str, context: dict[str, str]) -> str:
+    try:
+        return Template(value).substitute(context)
+    except KeyError as error:
+        missing = error.args[0]
+        raise RuntimeError(f"bootstrap template referenced missing value '{missing}'") from error
+
+
+def _context_value(value: Any) -> str:
+    if isinstance(value, (dict, list)):
+        return json.dumps(value)
+    if value is None:
+        return ""
+    return str(value)
+
+
+@dataclass(frozen=True)
+class BootstrapRequestStep:
+    endpoint: str
+    method: str = ""
+    headers: dict[str, str] = field(default_factory=dict)
+    body: str | None = None
+    capture_json_paths: dict[str, str] = field(default_factory=dict)
+
+    def request_method(self) -> str:
+        return self.method or ("POST" if self.body is not None else "GET")
+
+
 @dataclass
 class HeaderBootstrapper:
-    endpoint: str
+    endpoint: str = ""
     header_name: str = "Authorization"
     header_prefix: str = "Bearer "
     token_json_path: str = "access_token"
@@ -55,19 +93,36 @@ class HeaderBootstrapper:
     opener: Callable[..., Any] = request.urlopen
     clock: Callable[[], float] = time.monotonic
     cookie_jar: "CookieJar | None" = None
+    steps: tuple[BootstrapRequestStep, ...] = ()
     _cached_header_value: str | None = field(default=None, init=False, repr=False)
     _expires_at: float | None = field(default=None, init=False, repr=False)
 
-    def _bootstrap_request(self) -> request.Request:
-        data = self.body.encode("utf-8") if self.body is not None else None
-        headers = dict(self.headers)
+    def _steps(self) -> tuple[BootstrapRequestStep, ...]:
+        if self.steps:
+            return self.steps
+        if not self.endpoint:
+            raise RuntimeError("bootstrap endpoint is required")
+        return (
+            BootstrapRequestStep(
+                endpoint=self.endpoint,
+                method=self.method,
+                headers=self.headers,
+                body=self.body,
+            ),
+        )
+
+    def _bootstrap_request(self, step: BootstrapRequestStep, context: dict[str, str]) -> request.Request:
+        endpoint = _template_value(step.endpoint, context)
+        body = _template_value(step.body, context) if step.body is not None else None
+        data = body.encode("utf-8") if body is not None else None
+        headers = {key: _template_value(value, context) for key, value in step.headers.items()}
         if self.cookie_jar is not None:
             self.cookie_jar.inject(headers)
         return request.Request(
-            self.endpoint,
+            endpoint,
             data=data,
             headers=headers,
-            method=self.method,
+            method=step.request_method(),
         )
 
     def resolve_header(self) -> tuple[str, str]:
@@ -75,10 +130,23 @@ class HeaderBootstrapper:
         if self._cached_header_value and (self._expires_at is None or now < self._expires_at):
             return self.header_name, self._cached_header_value
 
-        with self.opener(self._bootstrap_request(), timeout=self.timeout_seconds) as response:
-            if self.cookie_jar is not None:
-                self.cookie_jar.capture(response)
-            body = json.loads(response.read().decode("utf-8"))
+        context: dict[str, str] = {}
+        body: Any = None
+        steps = self._steps()
+        for index, step in enumerate(steps):
+            with self.opener(self._bootstrap_request(step, context), timeout=self.timeout_seconds) as response:
+                if self.cookie_jar is not None:
+                    self.cookie_jar.capture(response)
+                payload = response.read()
+            is_last = index == len(steps) - 1
+            if step.capture_json_paths or is_last:
+                body = json.loads(payload.decode("utf-8"))
+            if step.capture_json_paths:
+                if not isinstance(body, dict):
+                    raise RuntimeError("bootstrap step did not return a JSON object")
+                for name, path in step.capture_json_paths.items():
+                    context[name] = _context_value(_resolve_json_path(body, path))
+
         token = _resolve_json_path(body, self.token_json_path)
         if not isinstance(token, str) or not token:
             raise RuntimeError("bootstrap response did not contain a usable token")
@@ -353,27 +421,55 @@ def create_planner() -> Any:
         from planner_service.planner import DeterministicPlanner
 
         return DeterministicPlanner()
-    extra_headers: dict[str, str] = {}
-    raw_extra_headers = os.getenv("PLOVER_LLM_EXTRA_HEADERS")
-    if raw_extra_headers:
-        parsed_headers = json.loads(raw_extra_headers)
-        if not isinstance(parsed_headers, dict):
-            raise RuntimeError("PLOVER_LLM_EXTRA_HEADERS must be a JSON object")
-        extra_headers = {str(key): str(value) for key, value in parsed_headers.items()}
+    extra_headers = _json_object(os.getenv("PLOVER_LLM_EXTRA_HEADERS"), env_name="PLOVER_LLM_EXTRA_HEADERS")
     bootstrapper: HeaderBootstrapper | None = None
     cookie_jar = CookieJar()
+    bootstrap_steps: tuple[BootstrapRequestStep, ...] = ()
+    raw_bootstrap_flow = os.getenv("PLOVER_LLM_BOOTSTRAP_FLOW")
+    if raw_bootstrap_flow:
+        parsed_bootstrap_flow = json.loads(raw_bootstrap_flow)
+        if not isinstance(parsed_bootstrap_flow, list) or not parsed_bootstrap_flow:
+            raise RuntimeError("PLOVER_LLM_BOOTSTRAP_FLOW must be a non-empty JSON array")
+        parsed_steps: list[BootstrapRequestStep] = []
+        for index, raw_step in enumerate(parsed_bootstrap_flow, start=1):
+            if not isinstance(raw_step, dict):
+                raise RuntimeError(f"PLOVER_LLM_BOOTSTRAP_FLOW step {index} must be a JSON object")
+            endpoint = raw_step.get("endpoint")
+            if not isinstance(endpoint, str) or not endpoint:
+                raise RuntimeError(f"PLOVER_LLM_BOOTSTRAP_FLOW step {index} requires a non-empty endpoint")
+            method = raw_step.get("method")
+            if method is not None and not isinstance(method, str):
+                raise RuntimeError(f"PLOVER_LLM_BOOTSTRAP_FLOW step {index} method must be a string")
+            body = raw_step.get("body")
+            if body is not None and not isinstance(body, str):
+                raise RuntimeError(f"PLOVER_LLM_BOOTSTRAP_FLOW step {index} body must be a string")
+            headers = raw_step.get("headers") or {}
+            if not isinstance(headers, dict):
+                raise RuntimeError(f"PLOVER_LLM_BOOTSTRAP_FLOW step {index} headers must be a JSON object")
+            capture = raw_step.get("capture") or {}
+            if not isinstance(capture, dict):
+                raise RuntimeError(f"PLOVER_LLM_BOOTSTRAP_FLOW step {index} capture must be a JSON object")
+            parsed_steps.append(
+                BootstrapRequestStep(
+                    endpoint=endpoint,
+                    method=(method or "").upper(),
+                    headers={str(key): str(value) for key, value in headers.items()},
+                    body=body,
+                    capture_json_paths={str(key): str(value) for key, value in capture.items()},
+                )
+            )
+        bootstrap_steps = tuple(parsed_steps)
     bootstrap_endpoint = os.getenv("PLOVER_LLM_BOOTSTRAP_ENDPOINT")
-    if bootstrap_endpoint:
-        bootstrap_headers: dict[str, str] = {}
-        raw_bootstrap_headers = os.getenv("PLOVER_LLM_BOOTSTRAP_HEADERS")
-        if raw_bootstrap_headers:
-            parsed_bootstrap_headers = json.loads(raw_bootstrap_headers)
-            if not isinstance(parsed_bootstrap_headers, dict):
-                raise RuntimeError("PLOVER_LLM_BOOTSTRAP_HEADERS must be a JSON object")
-            bootstrap_headers = {str(key): str(value) for key, value in parsed_bootstrap_headers.items()}
+    if bootstrap_steps or bootstrap_endpoint:
+        bootstrap_headers = _json_object(
+            os.getenv("PLOVER_LLM_BOOTSTRAP_HEADERS"),
+            env_name="PLOVER_LLM_BOOTSTRAP_HEADERS",
+        )
         bootstrap_method = os.getenv("PLOVER_LLM_BOOTSTRAP_METHOD")
         bootstrap_body = os.getenv("PLOVER_LLM_BOOTSTRAP_BODY")
-        if not bootstrap_method:
+        if bootstrap_steps:
+            bootstrap_method = bootstrap_method or "GET"
+        elif not bootstrap_method:
             bootstrap_method = "POST" if bootstrap_body is not None else "GET"
         bootstrapper = HeaderBootstrapper(
             endpoint=bootstrap_endpoint,
@@ -386,6 +482,7 @@ def create_planner() -> Any:
             body=bootstrap_body,
             refresh_skew_seconds=float(os.getenv("PLOVER_LLM_BOOTSTRAP_REFRESH_SKEW_SECONDS", "30")),
             cookie_jar=cookie_jar,
+            steps=bootstrap_steps,
         )
     model = OpenAICompatibleChatModel(
         endpoint=endpoint,

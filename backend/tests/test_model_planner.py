@@ -2,7 +2,13 @@ import unittest
 from unittest.mock import patch
 
 from plover_core.models import ExecutionStatus, PlanState, PlanStep, PlanVersion, ReplanCause
-from planner_service.model_planner import HeaderBootstrapper, ModelPlanner, OpenAICompatibleChatModel, create_planner
+from planner_service.model_planner import (
+    BootstrapRequestStep,
+    HeaderBootstrapper,
+    ModelPlanner,
+    OpenAICompatibleChatModel,
+    create_planner,
+)
 
 
 class FakeChatModel:
@@ -228,6 +234,88 @@ class ModelPlannerTests(unittest.TestCase):
         self.assertEqual(model_calls[1]["cookie"], "request_seen=1; session_id=seed-1")
         self.assertEqual(model_calls[2]["cookie"], "request_seen=2; session_id=seed-2")
 
+    def test_openai_compatible_model_supports_multi_step_bootstrap_flow(self) -> None:
+        requests_seen: list[tuple[str, dict[str, str], str | None]] = []
+        stage_responses = iter(
+            (
+                b'{"stage":{"ticket":"ticket-1"}}',
+                b'{"stage":{"ticket":"ticket-2"}}',
+            )
+        )
+        exchange_responses = iter(
+            (
+                b'{"session":{"token":"boot-token-1","expires_in":120}}',
+                b'{"session":{"token":"boot-token-2","expires_in":120}}',
+            )
+        )
+        clock_value = [100.0]
+
+        def opener(http_request, *, timeout=None):
+            headers = {key.lower(): value for key, value in http_request.header_items()}
+            headers["cookie"] = http_request.get_header("Cookie") or ""
+            body = http_request.data.decode("utf-8") if http_request.data else None
+            requests_seen.append((http_request.full_url, headers, body))
+            if http_request.full_url.endswith("/session"):
+                cookies = {"Set-Cookie": [f"seed=stage-{len([url for url, _, _ in requests_seen if url.endswith('/session')])}; Path=/"]}
+                return FakeHttpResponse(next(stage_responses), headers=cookies)
+            if http_request.full_url.endswith("/exchange"):
+                cookies = {"Set-Cookie": [f"exchange=done-{len([url for url, _, _ in requests_seen if url.endswith('/exchange')])}; Path=/"]}
+                return FakeHttpResponse(next(exchange_responses), headers=cookies)
+            return FakeHttpResponse(
+                b'{"choices":[{"message":{"content":"<analysis>ok</analysis><steps><completed /><pending><step>Act</step></pending></steps>"}}]}'
+            )
+
+        bootstrapper = HeaderBootstrapper(
+            header_name="authorization",
+            header_prefix="Bearer ",
+            token_json_path="session.token",
+            expires_in_json_path="session.expires_in",
+            opener=opener,
+            clock=lambda: clock_value[0],
+            steps=(
+                BootstrapRequestStep(
+                    endpoint="https://example.test/session",
+                    capture_json_paths={"ticket": "stage.ticket"},
+                ),
+                BootstrapRequestStep(
+                    endpoint="https://example.test/exchange",
+                    method="POST",
+                    headers={"x-ticket": "${ticket}"},
+                    body='{"ticket":"${ticket}"}',
+                ),
+            ),
+        )
+        model = OpenAICompatibleChatModel(
+            endpoint="https://example.test/v1/chat/completions",
+            model="computer-use",
+            bootstrapper=bootstrapper,
+            opener=opener,
+        )
+
+        model.complete(system="sys", user="first")
+        clock_value[0] = 205.0
+        model.complete(system="sys", user="second")
+
+        bootstrap_calls = [(url, headers, body) for url, headers, body in requests_seen if not url.endswith("/v1/chat/completions")]
+        model_calls = [headers for url, headers, _ in requests_seen if url.endswith("/v1/chat/completions")]
+        self.assertEqual(
+            [url for url, _, _ in bootstrap_calls],
+            [
+                "https://example.test/session",
+                "https://example.test/exchange",
+                "https://example.test/session",
+                "https://example.test/exchange",
+            ],
+        )
+        self.assertEqual(bootstrap_calls[1][1]["x-ticket"], "ticket-1")
+        self.assertEqual(bootstrap_calls[1][2], '{"ticket":"ticket-1"}')
+        self.assertEqual(bootstrap_calls[1][1]["cookie"], "seed=stage-1")
+        self.assertEqual(bootstrap_calls[3][2], '{"ticket":"ticket-2"}')
+        self.assertEqual(model_calls[0]["authorization"], "Bearer boot-token-1")
+        self.assertEqual(model_calls[0]["cookie"], "exchange=done-1; seed=stage-1")
+        self.assertEqual(model_calls[1]["authorization"], "Bearer boot-token-2")
+        self.assertEqual(model_calls[1]["cookie"], "exchange=done-2; seed=stage-2")
+
     def test_create_planner_reads_stream_and_header_configuration_from_environment(self) -> None:
         with patch.dict(
             "os.environ",
@@ -283,6 +371,46 @@ class ModelPlannerTests(unittest.TestCase):
         self.assertEqual(bootstrapper.expires_in_json_path, "session.expires_in")
         self.assertEqual(bootstrapper.refresh_skew_seconds, 15)
         self.assertIsNotNone(planner._model.cookie_jar)
+
+    def test_create_planner_reads_bootstrap_flow_configuration_from_environment(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "PLOVER_LLM_ENDPOINT": "https://example.test/v1/chat/completions",
+                "PLOVER_LLM_BOOTSTRAP_FLOW": (
+                    '[{"endpoint":"https://example.test/session","capture":{"ticket":"stage.ticket"}},'
+                    '{"endpoint":"https://example.test/exchange","method":"post","headers":{"x-ticket":"${ticket}"},'
+                    '"body":"{\\"ticket\\":\\"${ticket}\\"}"}]'
+                ),
+                "PLOVER_LLM_BOOTSTRAP_HEADER_NAME": "x-session-token",
+                "PLOVER_LLM_BOOTSTRAP_HEADER_PREFIX": "Token ",
+                "PLOVER_LLM_BOOTSTRAP_TOKEN_PATH": "session.token",
+                "PLOVER_LLM_BOOTSTRAP_EXPIRES_IN_PATH": "session.expires_in",
+            },
+            clear=False,
+        ):
+            planner = create_planner()
+
+        self.assertIsInstance(planner, ModelPlanner)
+        self.assertIsInstance(planner._model.bootstrapper, HeaderBootstrapper)
+        bootstrapper = planner._model.bootstrapper
+        self.assertEqual(len(bootstrapper.steps), 2)
+        self.assertEqual(bootstrapper.steps[0].capture_json_paths, {"ticket": "stage.ticket"})
+        self.assertEqual(bootstrapper.steps[1].method, "POST")
+        self.assertEqual(bootstrapper.steps[1].headers, {"x-ticket": "${ticket}"})
+        self.assertEqual(bootstrapper.steps[1].body, '{"ticket":"${ticket}"}')
+
+    def test_create_planner_rejects_invalid_bootstrap_flow(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "PLOVER_LLM_ENDPOINT": "https://example.test/v1/chat/completions",
+                "PLOVER_LLM_BOOTSTRAP_FLOW": '{"endpoint":"https://example.test/session"}',
+            },
+            clear=False,
+        ):
+            with self.assertRaises(RuntimeError):
+                create_planner()
 
     def test_create_planner_rejects_non_object_extra_headers(self) -> None:
         with patch.dict(

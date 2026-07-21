@@ -74,6 +74,17 @@ need the frontend to point at a non-default Planner address.
 
 Set `PLOVER_DATABASE_PATH=./data/plover.sqlite3` to persist Planner runs,
 proposals, screenshots, and timeline events across service restarts.
+Planner applies migrations automatically on startup, and
+`./scripts/migrate_database.sh` can be used to initialize or upgrade the
+schema ahead of time:
+
+```bash
+PLOVER_DATABASE_PATH=./data/plover.sqlite3 \
+./scripts/migrate_database.sh
+```
+
+The same migration command works for PostgreSQL deployments when
+`PLOVER_DATABASE_URL` is set to a `postgresql://` or `postgres://` DSN.
 
 Set `PLOVER_LLM_ENDPOINT` to use the XML-validated vision-model planner.
 `PLOVER_LLM_MODEL` selects the chat-completions model, `PLOVER_LLM_API_KEY`

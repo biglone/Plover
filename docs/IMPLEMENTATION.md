@@ -107,12 +107,27 @@ PLOVER_DATABASE_PATH=./data/plover.sqlite3 \
 PYTHONPATH=backend .venv/bin/python -m planner_service
 ```
 
+The service applies schema migrations automatically on startup. To initialize
+or upgrade the database explicitly before launching Planner, run:
+
+```bash
+PLOVER_DATABASE_PATH=./data/plover.sqlite3 \
+./scripts/migrate_database.sh
+```
+
 For multi-process deployments, set `PLOVER_DATABASE_URL` to a SQLite or
 PostgreSQL DSN:
 
 ```bash
 PLOVER_DATABASE_URL=postgresql://plover:secret@db.example.com/plover \
 PYTHONPATH=backend .venv/bin/python -m planner_service
+```
+
+The same script also supports DSN-based deployments:
+
+```bash
+PLOVER_DATABASE_URL=postgresql://plover:secret@db.example.com/plover \
+./scripts/migrate_database.sh
 ```
 
 Set `PLOVER_LLM_ENDPOINT` to switch Planner to the OpenAI-compatible vision

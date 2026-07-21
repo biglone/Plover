@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from io import BytesIO
+import os
 from typing import Protocol
 
 import grpc
@@ -12,6 +13,12 @@ from executor_service import executor_pb2_grpc
 from executor_service.driver import MockEnvironmentDriver, SCREEN_HEIGHT, SCREEN_WIDTH
 from executor_service.service import ExecutorService
 from plover_core.models import PlanStep
+from planner_service.observation_source import (
+    LiveObservation,
+    ObservationSource,
+    ObservationSourceError,
+    create_observation_source_from_env,
+)
 
 
 @dataclass(frozen=True)
@@ -21,6 +28,8 @@ class ExecutorResult:
     screenshot_png: bytes
     failure_type: str | None = None
     events: tuple["ExecutorEvent", ...] = ()
+    width: int = SCREEN_WIDTH
+    height: int = SCREEN_HEIGHT
 
 
 @dataclass(frozen=True)
@@ -30,13 +39,6 @@ class ExecutorEvent:
     detail: str
     created_at: str
     step_id: str
-
-
-@dataclass(frozen=True)
-class LiveObservation:
-    screenshot_png: bytes
-    width: int
-    height: int
 
 
 class ExecutorGateway(Protocol):
@@ -152,6 +154,8 @@ class LocalExecutorGateway:
             screenshot_png=response.screenshot_png,
             failure_type=response.failure_type or None,
             events=self._take_events(run_id),
+            width=SCREEN_WIDTH,
+            height=SCREEN_HEIGHT,
         )
 
     def observe(self, run_id: str) -> LiveObservation:
@@ -236,6 +240,8 @@ class GrpcExecutorGateway:
             screenshot_png=response.screenshot_png,
             failure_type=response.failure_type or None,
             events=self._take_events(run_id),
+            width=SCREEN_WIDTH,
+            height=SCREEN_HEIGHT,
         )
 
     def observe(self, run_id: str) -> LiveObservation:
@@ -248,3 +254,54 @@ class GrpcExecutorGateway:
 
     def close(self) -> None:
         self._channel.close()
+
+
+class ObservationBackedExecutorGateway:
+    """Gateway wrapper that prefers an external observation feed for Live View."""
+
+    def __init__(self, gateway: ExecutorGateway, source: ObservationSource | None = None) -> None:
+        self._gateway = gateway
+        self._source = source or create_observation_source_from_env()
+
+    def _capture(self, run_id: str) -> LiveObservation | None:
+        if self._source is None:
+            return None
+        try:
+            return self._source.observe(run_id)
+        except ObservationSourceError:
+            return None
+
+    def execute_step(self, run_id: str, step: PlanStep) -> ExecutorResult:
+        result = self._gateway.execute_step(run_id, step)
+        observation = self._capture(run_id)
+        if observation is None:
+            return result
+        return ExecutorResult(
+            ok=result.ok,
+            summary=result.summary,
+            screenshot_png=observation.screenshot_png,
+            failure_type=result.failure_type,
+            events=result.events,
+            width=observation.width,
+            height=observation.height,
+        )
+
+    def observe(self, run_id: str) -> LiveObservation:
+        observation = self._capture(run_id)
+        if observation is not None:
+            return observation
+        return self._gateway.observe(run_id)
+
+    def close(self) -> None:
+        closer = getattr(self._gateway, "close", None)
+        if callable(closer):
+            closer()
+
+
+def create_executor_gateway_from_env() -> ExecutorGateway:
+    executor_target = os.getenv("PLOVER_EXECUTOR_TARGET")
+    gateway: ExecutorGateway = GrpcExecutorGateway(executor_target) if executor_target else LocalExecutorGateway()
+    source = create_observation_source_from_env()
+    if source is None:
+        return gateway
+    return ObservationBackedExecutorGateway(gateway, source)

@@ -13,7 +13,7 @@ from plover_core.models import Annotation, PlanState, PlanStep, PlanVersion, Pro
 from plover_core.plan import PlanInvariantError, approve_proposal, complete_next_step, replace_pending
 from plover_core.safety import inspect_text
 from plover_core.xml_plan import PlanParseError
-from planner_service.executor_gateway import ExecutorGateway, GrpcExecutorGateway, LocalExecutorGateway
+from planner_service.executor_gateway import ExecutorGateway, create_executor_gateway_from_env
 from planner_service.model_planner import create_planner
 from planner_service.store import PlannerRepository, RunRecord, SqlitePlannerRepository, create_repository, utc_now
 from planner_service.vnc_gateway import VncTarget, VncTargetError, proxy_vnc
@@ -149,8 +149,7 @@ def create_app(
     repository = repository or create_repository()
     planner = planner or create_planner()
     if executor is None:
-        executor_target = os.getenv("PLOVER_EXECUTOR_TARGET")
-        executor = GrpcExecutorGateway(executor_target) if executor_target else LocalExecutorGateway()
+        executor = create_executor_gateway_from_env()
     app = FastAPI(title="Plover Planner Service", version="0.1.0")
 
     def get_run(run_id: str) -> RunRecord:
@@ -549,7 +548,7 @@ def create_app(
         if result.events:
             _record_executor_events(run, step.id, result.events)
         if result.screenshot_png:
-            run.set_live_view(result.screenshot_png)
+            run.set_live_view(result.screenshot_png, width=result.width, height=result.height)
             run.add_screenshot(run.live_view_data_url() or "")
 
         if not result.ok:

@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import grpc
 from fastapi.testclient import TestClient
+from PIL import Image
 from starlette.websockets import WebSocketDisconnect
 
 from planner_service.app import create_app
@@ -386,6 +387,44 @@ class PlannerServiceTests(unittest.TestCase):
         observed = response.json()
         self.assertEqual(observed["live_view"]["width"], 1024)
         self.assertEqual(observed["live_view"]["height"], 768)
+
+    def test_external_observation_path_overrides_live_view_frames(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = f"{directory}/live-view.png"
+            Image.new("RGB", (320, 200), color=(17, 34, 51)).save(path, format="PNG")
+            with patch.dict(
+                environ,
+                {
+                    "PLOVER_EXECUTOR_TARGET": "",
+                    "PLOVER_OBSERVATION_PATH": path,
+                    "PLOVER_OBSERVATION_URL": "",
+                    "PLOVER_OBSERVATION_HEADERS": "",
+                },
+            ):
+                client = TestClient(create_app(PlannerRepository(), DeterministicPlanner()))
+                created = client.post("/api/runs", json={"task": "Open a report"})
+                self.assertEqual(created.status_code, 201)
+                run = created.json()
+                self.assertEqual(run["live_view"]["width"], 320)
+                self.assertEqual(run["live_view"]["height"], 200)
+
+                executed = client.post(f"/api/runs/{run['id']}/execute-next")
+                self.assertEqual(executed.status_code, 200)
+                self.assertEqual(executed.json()["live_view"]["width"], 320)
+                self.assertEqual(executed.json()["live_view"]["height"], 200)
+
+    def test_invalid_observation_header_config_is_rejected(self) -> None:
+        with patch.dict(
+            environ,
+            {
+                "PLOVER_EXECUTOR_TARGET": "",
+                "PLOVER_OBSERVATION_PATH": "",
+                "PLOVER_OBSERVATION_URL": "http://example.test/frame.png",
+                "PLOVER_OBSERVATION_HEADERS": "[]",
+            },
+        ):
+            with self.assertRaises(ValueError):
+                create_app(PlannerRepository(), DeterministicPlanner())
 
     def test_live_websocket_streams_a_frame(self) -> None:
         run = self.client.post("/api/runs", json={"task": "Open a report"}).json()

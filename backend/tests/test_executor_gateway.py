@@ -1,7 +1,9 @@
+import os
 import unittest
+from unittest.mock import patch
 
 from executor_service import executor_pb2
-from planner_service.executor_gateway import LocalExecutorGateway, actions_for_step
+from planner_service.executor_gateway import LocalExecutorGateway, actions_for_step, create_executor_gateway_from_env
 from plover_core.models import PlanStep, StepAction
 
 
@@ -52,3 +54,31 @@ class ExecutorGatewayTests(unittest.TestCase):
                 ("screenshot", ()),
             ],
         )
+
+    def test_local_gateway_fail_once_scenario_only_fails_the_first_execution_per_run(self) -> None:
+        gateway = LocalExecutorGateway(scenario="fail_once")
+        step = PlanStep(
+            "step-1",
+            "Try the primary path once",
+            actions=(StepAction("observe"),),
+        )
+
+        first = gateway.execute_step("run-1", step)
+        second = gateway.execute_step("run-1", step)
+        third = gateway.execute_step("run-2", step)
+
+        self.assertFalse(first.ok)
+        self.assertEqual(first.failure_type, "REPEAT_CLICK_MENU")
+        self.assertIn("Retry with a different tactic", first.summary)
+        self.assertEqual(first.events[0].kind, "failure_detected")
+
+        self.assertTrue(second.ok)
+        self.assertIn("Capturing the current screen", second.summary)
+        self.assertFalse(third.ok)
+
+    def test_create_executor_gateway_from_env_applies_local_scenario(self) -> None:
+        with patch.dict(os.environ, {"PLOVER_LOCAL_EXECUTOR_SCENARIO": "fail_once"}, clear=False):
+            gateway = create_executor_gateway_from_env()
+
+        self.assertIsInstance(gateway, LocalExecutorGateway)
+        self.assertEqual(gateway._scenario, "fail_once")

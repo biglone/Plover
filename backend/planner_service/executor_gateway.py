@@ -66,10 +66,12 @@ def _placeholder_png(lines: list[str]) -> bytes:
 class LocalExecutorGateway:
     """In-process executor gateway for a runnable local prototype."""
 
-    def __init__(self, service: ExecutorService | None = None) -> None:
+    def __init__(self, service: ExecutorService | None = None, *, scenario: str | None = None) -> None:
         self._drivers: dict[str, MockEnvironmentDriver] = {}
         self._services: dict[str, ExecutorService] = {}
         self._event_offsets: dict[str, int] = {}
+        self._scenario = (scenario or "").strip().lower() or None
+        self._failed_runs: set[str] = set()
         if service is not None:
             self._services["__shared__"] = service
 
@@ -111,6 +113,33 @@ class LocalExecutorGateway:
 
     def execute_step(self, run_id: str, step: PlanStep) -> ExecutorResult:
         driver = self._driver_for(run_id)
+        if self._scenario == "fail_once" and run_id not in self._failed_runs:
+            self._failed_runs.add(run_id)
+            driver.screenshot_bytes = _placeholder_png(
+                [
+                    f"Run: {run_id}",
+                    f"Step: {step.id}",
+                    "Executor mode: local mock",
+                    "Injected failure: REPEAT_CLICK_MENU",
+                ]
+            )
+            return ExecutorResult(
+                ok=False,
+                summary="Retry with a different tactic",
+                screenshot_png=driver.screenshot_bytes,
+                failure_type="REPEAT_CLICK_MENU",
+                events=(
+                    ExecutorEvent(
+                        kind="failure_detected",
+                        ui_summary="Retry with a different tactic",
+                        detail="Injected fail_once scenario for browser recovery testing",
+                        created_at="2026-07-21T00:00:00+00:00",
+                        step_id=step.id,
+                    ),
+                ),
+                width=SCREEN_WIDTH,
+                height=SCREEN_HEIGHT,
+            )
         driver.screenshot_bytes = _placeholder_png(
             [
                 f"Run: {run_id}",
@@ -327,7 +356,10 @@ class ObservationBackedExecutorGateway:
 
 def create_executor_gateway_from_env() -> ExecutorGateway:
     executor_target = os.getenv("PLOVER_EXECUTOR_TARGET")
-    gateway: ExecutorGateway = GrpcExecutorGateway(executor_target) if executor_target else LocalExecutorGateway()
+    local_scenario = os.getenv("PLOVER_LOCAL_EXECUTOR_SCENARIO")
+    gateway: ExecutorGateway = (
+        GrpcExecutorGateway(executor_target) if executor_target else LocalExecutorGateway(scenario=local_scenario)
+    )
     source = create_observation_source_from_env()
     if source is None:
         return gateway

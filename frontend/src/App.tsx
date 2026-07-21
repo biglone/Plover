@@ -363,6 +363,7 @@ export default function App() {
   const [task, setTask] = useState(initialPrompt);
   const [guidance, setGuidance] = useState("Choose the visible recovery option instead.");
   const [manualEditText, setManualEditText] = useState("");
+  const [manualActionManifestText, setManualActionManifestText] = useState("");
   const [run, setRun] = useState<RunState | null>(null);
   const [selectedBox, setSelectedBox] = useState<Box | null>(null);
   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null);
@@ -415,6 +416,31 @@ export default function App() {
     () => manualEditText.split("\n").map((line) => line.trim()).filter(Boolean),
     [manualEditText]
   );
+  const manualActionManifest = useMemo(() => {
+    const raw = manualActionManifestText.trim();
+    if (!raw) {
+      return { actions: null as StepAction[][] | null, error: null };
+    }
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (
+        !Array.isArray(parsed) ||
+        !parsed.every(
+          (actions) =>
+            Array.isArray(actions) &&
+            actions.every((action) => typeof action === "object" && action !== null && !Array.isArray(action))
+        )
+      ) {
+        throw new Error("Use a JSON array of action arrays, one array for each instruction.");
+      }
+      return { actions: parsed as StepAction[][], error: null };
+    } catch (parseError) {
+      return {
+        actions: null as StepAction[][] | null,
+        error: parseError instanceof Error ? parseError.message : "Action manifest is not valid JSON."
+      };
+    }
+  }, [manualActionManifestText]);
 
   const currentSummary = useMemo(() => {
     if (!run) {
@@ -478,6 +504,7 @@ export default function App() {
       setLiveConnected(false);
       setLiveMode("remote");
       setManualEditText("");
+      setManualActionManifestText("");
       setSelectedProposalId(null);
       setResumeNote("");
       setStatusNote("");
@@ -535,6 +562,10 @@ export default function App() {
       return;
     }
     setManualEditText(run.active_version.plan.pending.map((step) => step.instruction).join("\n"));
+    const actionGroups = run.active_version.plan.pending.map((step) => step.actions);
+    setManualActionManifestText(
+      actionGroups.some((actions) => actions.length) ? JSON.stringify(actionGroups, null, 2) : ""
+    );
   }, [run?.active_version_id]);
 
   useEffect(() => {
@@ -620,10 +651,28 @@ export default function App() {
     if (!run || manualEditSteps.length === 0) {
       return;
     }
+    if (manualActionManifest.error) {
+      setError(manualActionManifest.error);
+      return;
+    }
+    if (manualActionManifest.actions && manualActionManifest.actions.length !== manualEditSteps.length) {
+      setError("The action manifest must contain one action array for each pending instruction.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      const proposal = await manualEditPending(run.id, manualEditSteps);
+      const proposal = await manualEditPending(
+        run.id,
+        manualActionManifest.actions
+          ? {
+              steps: manualEditSteps.map((instruction, index) => ({
+                instruction,
+                actions: manualActionManifest.actions?.[index] ?? []
+              }))
+            }
+          : { instructions: manualEditSteps }
+      );
       setSelectedProposalId(proposal.id);
       setRun(await getRun(run.id));
     } catch (requestError) {
@@ -1203,18 +1252,53 @@ export default function App() {
                 value={manualEditText}
                 onChange={(event) => setManualEditText(event.target.value)}
               />
+              <div className="mt-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-clay">
+                      Optional action manifest
+                    </p>
+                    <p className="mt-1 text-sm text-ink/62">
+                      Use one JSON action array per instruction to bypass keyword fallback execution.
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-mist px-3 py-1 text-xs font-medium uppercase tracking-[0.16em] text-moss">
+                    {manualActionManifest.actions ? `${manualActionManifest.actions.length} action groups` : "text fallback"}
+                  </span>
+                </div>
+                <textarea
+                  className="mt-3 min-h-40 w-full rounded-[24px] border border-moss/10 bg-[#1f2e29] px-4 py-4 font-mono text-xs leading-6 text-[#e8f0e8] outline-none transition focus:border-clay/50"
+                  disabled={!run}
+                  onChange={(event) => setManualActionManifestText(event.target.value)}
+                  placeholder={`[\n  [\n    { "kind": "click", "x": 420, "y": 280 },\n    { "kind": "observe" }\n  ]\n]`}
+                  spellCheck={false}
+                  value={manualActionManifestText}
+                />
+                {manualActionManifest.error ? (
+                  <p className="mt-2 text-sm text-clay">{manualActionManifest.error}</p>
+                ) : null}
+              </div>
               <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <p className="text-sm text-ink/62">
-                  One instruction per line. Completed history stays locked; approval applies only the rewritten pending suffix.
+                  One instruction per line. Leave the manifest blank for text fallback; approval always preserves completed history.
                 </p>
                 <div className="flex flex-col gap-3 sm:flex-row">
                   <button
                     className="rounded-full border border-moss/15 bg-white px-4 py-3 text-sm font-semibold text-moss transition hover:bg-mist disabled:cursor-not-allowed disabled:opacity-60"
                     disabled={!run}
                     onClick={() =>
-                      setManualEditText(
-                        run ? run.active_version.plan.pending.map((step) => step.instruction).join("\n") : ""
-                      )
+                      {
+                        if (!run) {
+                          return;
+                        }
+                        setManualEditText(run.active_version.plan.pending.map((step) => step.instruction).join("\n"));
+                        const actionGroups = run.active_version.plan.pending.map((step) => step.actions);
+                        setManualActionManifestText(
+                          actionGroups.some((actions) => actions.length)
+                            ? JSON.stringify(actionGroups, null, 2)
+                            : ""
+                        );
+                      }
                     }
                     type="button"
                   >

@@ -1,4 +1,4 @@
-import type { Box, ManualRunStatus, Proposal, RunState } from "./types";
+import type { Box, ManualRunStatus, Proposal, RunState, StepAction } from "./types";
 
 const jsonHeaders = {
   "Content-Type": "application/json"
@@ -44,12 +44,21 @@ export async function replanWithGuidance(runId: string, guidance: string): Promi
   );
 }
 
-export async function manualEditPending(runId: string, instructions: string[]): Promise<Proposal> {
+export type ManualStepInput = {
+  instruction: string;
+  ui_summary?: string;
+  actions: StepAction[];
+};
+
+export async function manualEditPending(
+  runId: string,
+  payload: { instructions?: string[]; steps?: ManualStepInput[] }
+): Promise<Proposal> {
   return parse<Proposal>(
     await fetch(`/api/runs/${runId}/manual-edit`, {
       method: "POST",
       headers: jsonHeaders,
-      body: JSON.stringify({ instructions })
+      body: JSON.stringify(payload)
     })
   );
 }

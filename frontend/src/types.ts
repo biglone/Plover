@@ -1,9 +1,22 @@
+export type StepAction = {
+  kind: string;
+  x?: number;
+  y?: number;
+  end_x?: number;
+  end_y?: number;
+  text?: string;
+  keys?: string[];
+  delta?: number;
+  milliseconds?: number;
+};
+
 export type Step = {
   id: string;
   instruction: string;
   status: string;
   ui_summary?: string | null;
   failure_reason?: string | null;
+  actions: StepAction[];
 };
 
 export type PlanVersion = {

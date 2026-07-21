@@ -14,7 +14,7 @@ import {
   replanWithGuidance,
   updateRunStatus
 } from "./api";
-import type { Box, ManualRunStatus, Proposal, RunState, Step } from "./types";
+import type { Box, ManualRunStatus, Proposal, RunState, Step, StepAction } from "./types";
 import VncViewer, { type VncConnectionState } from "./VncViewer";
 
 const initialPrompt =
@@ -98,6 +98,60 @@ function eventDetails(event: RunEvent): string[] {
   return details;
 }
 
+function formatStepAction(action: StepAction): string {
+  switch (action.kind) {
+    case "click":
+      return `Click at ${action.x}, ${action.y}`;
+    case "double_click":
+      return `Double-click at ${action.x}, ${action.y}`;
+    case "move":
+      return `Move to ${action.x}, ${action.y}`;
+    case "drag":
+      return `Drag ${action.x}, ${action.y} -> ${action.end_x}, ${action.end_y}`;
+    case "type":
+      return `Type "${action.text ?? ""}"`;
+    case "keys":
+      return `Press ${(action.keys ?? []).join(" + ")}`;
+    case "scroll":
+      return `Scroll ${action.delta}`;
+    case "wait":
+      return `Wait ${action.milliseconds} ms`;
+    case "observe":
+      return "Observe screen";
+    default:
+      return action.kind.split("_").join(" ");
+  }
+}
+
+function ActionList({
+  actions,
+  compact = false
+}: {
+  actions: StepAction[];
+  compact?: boolean;
+}) {
+  if (actions.length === 0) {
+    return null;
+  }
+  return (
+    <div className={compact ? "mt-2 flex flex-wrap gap-2" : "mt-3 flex flex-wrap gap-2"}>
+      {actions.map((action, index) => (
+        <span
+          key={`${action.kind}-${index}-${JSON.stringify(action)}`}
+          className={`rounded-full border px-3 py-1 text-xs ${
+            compact
+              ? "border-clay/15 bg-white text-ink/68"
+              : "border-moss/12 bg-mist/60 text-moss"
+          }`}
+          title={JSON.stringify(action)}
+        >
+          {formatStepAction(action)}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function StepList({ steps, title }: { steps: Step[]; title: string }) {
   return (
     <section className="rounded-[28px] border border-moss/15 bg-white/70 p-5 shadow-panel">
@@ -128,6 +182,7 @@ function StepList({ steps, title }: { steps: Step[]; title: string }) {
               </span>
             </div>
             {step.ui_summary ? <p className="text-xs text-ink/60">{step.ui_summary}</p> : null}
+            <ActionList actions={step.actions} />
             {step.failure_reason ? <p className="mt-2 text-xs text-clay">{step.failure_reason}</p> : null}
           </article>
         ))}
@@ -258,8 +313,10 @@ function ProposalCard({
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-moss">Pending patch</p>
           <div className="mt-3 space-y-2 text-sm text-ink/75">
             {proposal.version.plan.pending.map((step) => (
-              <div key={step.id} className="rounded-xl bg-canvas px-3 py-2">
-                {step.instruction}
+              <div key={step.id} className="rounded-xl bg-canvas px-3 py-3">
+                <p>{step.instruction}</p>
+                {step.ui_summary ? <p className="mt-1 text-xs text-ink/55">{step.ui_summary}</p> : null}
+                <ActionList actions={step.actions} compact />
               </div>
             ))}
           </div>
@@ -775,6 +832,11 @@ export default function App() {
                                 <p className="mt-1 text-xs uppercase tracking-[0.16em] text-ink/45">
                                   {formatCause(proposal.version.cause)}
                                 </p>
+                                {proposal.version.plan.pending[0]?.actions.length ? (
+                                  <p className="mt-2 text-xs text-ink/55">
+                                    {proposal.version.plan.pending[0].actions.length} executor primitives attached
+                                  </p>
+                                ) : null}
                               </div>
                               <span className="rounded-full bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-moss shadow-sm">
                                 {proposal.status}

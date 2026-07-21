@@ -56,6 +56,8 @@ If the provider requires a session bootstrap or token refresh step, configure
 `PLOVER_LLM_BOOTSTRAP_EXPIRES_IN_PATH`,
 `PLOVER_LLM_BOOTSTRAP_HEADER_NAME`, and
 `PLOVER_LLM_BOOTSTRAP_HEADER_PREFIX` settings.
+Bootstrap responses can also set cookies, which Planner persists across later
+chat-completion requests automatically.
 Without `PLOVER_LLM_ENDPOINT`, the deterministic local planner is used.
 
 Set `PLOVER_VNC_TARGET=host:port` to expose a raw VNC WebSocket bridge at

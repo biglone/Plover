@@ -79,7 +79,9 @@ be customized with `PLOVER_LLM_API_KEY_HEADER`,
 `PLOVER_LLM_STREAM=1` to consume SSE chat-completions responses. For providers
 that need a bootstrap or refresh call before chat completions, configure
 `PLOVER_LLM_BOOTSTRAP_ENDPOINT` and its companion settings for method, headers,
-body, token path, expiry path, and injected header naming:
+body, token path, expiry path, and injected header naming. Any cookies set by
+that bootstrap response are persisted and replayed on subsequent bootstrap and
+chat-completion requests:
 
 ```bash
 PLOVER_LLM_ENDPOINT=http://127.0.0.1:9000/v1/chat/completions \
@@ -136,8 +138,9 @@ paths:
 
 ## Integration Boundaries
 
-- Add provider-specific cookie persistence or multi-step login orchestration if
-  the target deployment needs more than header bootstrap plus expiry refresh.
+- Add provider-specific multi-step login orchestration if the target
+  deployment needs more than header bootstrap, expiry refresh, and automatic
+  cookie persistence.
 - Route executor `failure_type` responses to
   `POST /api/runs/{run_id}/failures` to surface a system-driven IR proposal.
 - Replace the local Executor screenshot source behind the screenshot WebSocket

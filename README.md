@@ -58,6 +58,7 @@ PYTHONPATH=backend .venv/bin/python -m unittest discover -s backend/tests -v
 ./scripts/run_acceptance.sh
 npm --prefix frontend run build
 ./scripts/run_browser_e2e.sh
+./scripts/run_browser_recovery_e2e.sh
 ```
 
 The initial implementation uses a deterministic mock planner and executor by
@@ -73,6 +74,10 @@ Playwright Chromium once before the first run:
 ```bash
 .venv/bin/python -m playwright install chromium
 ```
+
+`./scripts/run_browser_recovery_e2e.sh` reuses the same launcher but starts
+Planner with `PLOVER_LOCAL_EXECUTOR_SCENARIO=fail_once` so the browser can
+verify the automatic recovery proposal flow end to end.
 
 Executor drivers are selected with `PLOVER_EXECUTOR_DRIVER=mock|linux|windows|macos`.
 macOS uses `pyautogui` and requires Accessibility and Screen Recording

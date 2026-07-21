@@ -1116,7 +1116,11 @@ export default function App() {
                 </div>
               ) : null}
               {run ? (
-                <div className="mb-4 rounded-[26px] border border-clay/15 bg-[#fff7f1] p-4">
+                <div
+                  aria-label="Failure recovery"
+                  className="mb-4 rounded-[26px] border border-clay/15 bg-[#fff7f1] p-4"
+                  data-testid="failure-recovery"
+                >
                   <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-clay">Failure recovery</p>
@@ -1129,12 +1133,14 @@ export default function App() {
                     </span>
                   </div>
                   <input
+                    aria-label="Failure type"
                     className="mt-4 w-full rounded-[20px] border border-clay/15 bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-clay/35"
                     onChange={(event) => setFailureType(event.target.value)}
                     placeholder="Failure type, for example REPEAT_CLICK_MENU"
                     value={failureType}
                   />
                   <textarea
+                    aria-label="Failure rationale"
                     className="mt-3 min-h-20 w-full rounded-[22px] border border-clay/15 bg-white px-4 py-3 text-sm leading-6 text-ink outline-none transition focus:border-clay/35"
                     onChange={(event) => setFailureRationale(event.target.value)}
                     placeholder="Optional rationale for the recovery proposal."

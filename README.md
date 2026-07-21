@@ -50,6 +50,11 @@ frontend with `./scripts/start_macos_host_executor.sh`.
 That launcher starts the Executor on the host at `0.0.0.0:50051`, points
 Planner at `host.docker.internal:50051`, and then runs
 `docker compose -f docker-compose.host-executor.yml up --build`.
+Before starting a real host Executor, run `./scripts/run_macos_smoke.sh`.
+It captures one frame and checks Accessibility without clicking or typing on
+the desktop. If it reports a Screen Recording failure, grant the terminal or
+Executor process access in **System Settings -> Privacy & Security -> Screen
+Recording**, then run the same command again.
 
 You can still run checks manually:
 
@@ -62,6 +67,7 @@ npm --prefix frontend run build
 ./scripts/run_browser_recovery_e2e.sh
 ./scripts/run_browser_safety_e2e.sh
 ./scripts/run_browser_annotation_e2e.sh
+./scripts/run_macos_smoke.sh
 ```
 
 The initial implementation uses a deterministic mock planner and executor by

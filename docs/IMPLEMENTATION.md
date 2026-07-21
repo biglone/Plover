@@ -196,6 +196,12 @@ On macOS, grant the terminal or packaged Executor process access under
 Recording**. Without both permissions, mouse/keyboard actions or screenshots
 may fail even though the gRPC service is healthy.
 
+Run `./scripts/run_macos_smoke.sh` before starting a real host Executor. It
+checks System Events Accessibility and captures a single normalized screenshot
+through the macOS driver without sending mouse or keyboard input. If the
+capture fails, grant the terminal or Executor process Screen Recording access
+and rerun the smoke check.
+
 To connect the browser directly to a VNC session, start Planner with a target
 that speaks the RFB protocol. The browser connects to Planner's same-origin
 WebSocket endpoint, so no separate websockify process is required:

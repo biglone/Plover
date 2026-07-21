@@ -61,7 +61,7 @@ class PyAutoGuiDriver(EnvironmentDriver):
         try:
             import pyautogui
         except ImportError as error:  # pragma: no cover - platform dependency
-            raise RuntimeError("Install pyautogui to use the Windows driver") from error
+            raise RuntimeError("Install pyautogui to use this desktop driver") from error
         self._pyautogui = pyautogui
 
     def click(self, x: int, y: int, *, double: bool = False) -> None:

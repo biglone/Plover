@@ -23,7 +23,7 @@ echo "==> Frontend unit tests"
 npm --prefix "$ROOT_DIR/frontend" run test
 
 echo "==> OpenAPI contract check"
-"$ROOT_DIR/scripts/check_openapi.sh"
+PLOVER_PYTHON_BIN="$PYTHON_BIN" "$ROOT_DIR/scripts/check_openapi.sh"
 
 echo "==> Frontend production build"
 npm --prefix "$ROOT_DIR/frontend" run build

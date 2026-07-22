@@ -1,8 +1,5 @@
 import type { Box, ManualRunStatus, Proposal, RunState, StepAction } from "./types";
-
-const jsonHeaders = {
-  "Content-Type": "application/json"
-};
+import { requestHeaders } from "./config";
 
 async function parse<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -24,21 +21,25 @@ export async function createRun(task: string): Promise<RunState> {
   return parse<RunState>(
     await fetch("/api/runs", {
       method: "POST",
-      headers: jsonHeaders,
+      headers: requestHeaders(true),
       body: JSON.stringify({ task })
     })
   );
 }
 
 export async function getRun(runId: string): Promise<RunState> {
-  return parse<RunState>(await fetch(`/api/runs/${runId}`));
+  return parse<RunState>(
+    await fetch(`/api/runs/${runId}`, {
+      headers: requestHeaders()
+    })
+  );
 }
 
 export async function replanWithGuidance(runId: string, guidance: string): Promise<Proposal> {
   return parse<Proposal>(
     await fetch(`/api/runs/${runId}/replan`, {
       method: "POST",
-      headers: jsonHeaders,
+      headers: requestHeaders(true),
       body: JSON.stringify({ guidance })
     })
   );
@@ -57,7 +58,7 @@ export async function manualEditPending(
   return parse<Proposal>(
     await fetch(`/api/runs/${runId}/manual-edit`, {
       method: "POST",
-      headers: jsonHeaders,
+      headers: requestHeaders(true),
       body: JSON.stringify(payload)
     })
   );
@@ -71,7 +72,7 @@ export async function resumeRun(
   return parse<Proposal>(
     await fetch(`/api/runs/${runId}/resume`, {
       method: "POST",
-      headers: jsonHeaders,
+      headers: requestHeaders(true),
       body: JSON.stringify({
         guidance,
         handled_outside: handledOutside
@@ -88,7 +89,7 @@ export async function replanWithAnnotation(
   return parse<Proposal>(
     await fetch(`/api/runs/${runId}/replan`, {
       method: "POST",
-      headers: jsonHeaders,
+      headers: requestHeaders(true),
       body: JSON.stringify({
         annotation: {
           screenshot,
@@ -105,7 +106,8 @@ export async function replanWithAnnotation(
 export async function approveProposal(runId: string, proposalId: string): Promise<RunState> {
   return parse<RunState>(
     await fetch(`/api/runs/${runId}/proposals/${proposalId}/approve`, {
-      method: "POST"
+      method: "POST",
+      headers: requestHeaders()
     })
   );
 }
@@ -113,7 +115,8 @@ export async function approveProposal(runId: string, proposalId: string): Promis
 export async function rejectProposal(runId: string, proposalId: string): Promise<RunState> {
   return parse<RunState>(
     await fetch(`/api/runs/${runId}/proposals/${proposalId}/reject`, {
-      method: "POST"
+      method: "POST",
+      headers: requestHeaders()
     })
   );
 }
@@ -121,7 +124,8 @@ export async function rejectProposal(runId: string, proposalId: string): Promise
 export async function completeStep(runId: string): Promise<RunState> {
   return parse<RunState>(
     await fetch(`/api/runs/${runId}/steps/complete`, {
-      method: "POST"
+      method: "POST",
+      headers: requestHeaders()
     })
   );
 }
@@ -129,7 +133,8 @@ export async function completeStep(runId: string): Promise<RunState> {
 export async function executeNext(runId: string): Promise<RunState> {
   return parse<RunState>(
     await fetch(`/api/runs/${runId}/execute-next`, {
-      method: "POST"
+      method: "POST",
+      headers: requestHeaders()
     })
   );
 }
@@ -137,7 +142,8 @@ export async function executeNext(runId: string): Promise<RunState> {
 export async function refreshLiveView(runId: string): Promise<RunState> {
   return parse<RunState>(
     await fetch(`/api/runs/${runId}/observe`, {
-      method: "POST"
+      method: "POST",
+      headers: requestHeaders()
     })
   );
 }
@@ -150,7 +156,7 @@ export async function reportFailure(
   return parse<Proposal>(
     await fetch(`/api/runs/${runId}/failures`, {
       method: "POST",
-      headers: jsonHeaders,
+      headers: requestHeaders(true),
       body: JSON.stringify({
         failure_type: failureType,
         rationale: rationale || null
@@ -167,7 +173,7 @@ export async function updateRunStatus(
   return parse<RunState>(
     await fetch(`/api/runs/${runId}/status`, {
       method: "POST",
-      headers: jsonHeaders,
+      headers: requestHeaders(true),
       body: JSON.stringify({ status, reason })
     })
   );

@@ -3,10 +3,11 @@ from __future__ import annotations
 import asyncio
 from dataclasses import replace as dataclass_replace
 import os
-from typing import Any
+from typing import Any, Mapping
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from plover_core.models import Annotation, PlanState, PlanStep, PlanVersion, Proposal, ReplanCause, StepAction
@@ -70,6 +71,40 @@ class ResumeRunRequest(BaseModel):
 class StatusRequest(BaseModel):
     status: str = Field(pattern="^(running|paused|failed)$")
     reason: str | None = Field(default=None, max_length=1000)
+
+
+def _configured_api_token() -> str | None:
+    token = os.getenv("PLOVER_API_TOKEN", "").strip()
+    return token or None
+
+
+def _bearer_token(value: str | None) -> str | None:
+    if not value:
+        return None
+    scheme, _, token = value.partition(" ")
+    if scheme.lower() != "bearer":
+        return None
+    token = token.strip()
+    return token or None
+
+
+def _request_token(headers: Mapping[str, str]) -> str | None:
+    token = _bearer_token(headers.get("authorization"))
+    if token:
+        return token
+    header_token = headers.get("x-plover-token")
+    if header_token:
+        header_token = header_token.strip()
+    return header_token or None
+
+
+def _websocket_token(websocket: WebSocket) -> str | None:
+    query_token = websocket.query_params.get("token")
+    if query_token:
+        query_token = query_token.strip()
+        if query_token:
+            return query_token
+    return _request_token(websocket.headers)
 
 
 def _annotation(request: AnnotationRequest | None) -> Annotation | None:
@@ -199,12 +234,26 @@ def create_app(
     if executor is None:
         executor = create_executor_gateway_from_env()
     app = FastAPI(title="Plover Planner Service", version="0.1.0")
+    api_token = _configured_api_token()
+    public_paths = {"/health", "/openapi.json", "/docs", "/redoc", "/docs/oauth2-redirect"}
 
     def get_run(run_id: str) -> RunRecord:
         run = repository.get(run_id)
         if run is None:
             raise HTTPException(status_code=404, detail="run not found")
         return run
+
+    @app.middleware("http")
+    async def require_api_token(request: Request, call_next):
+        if api_token is None or request.url.path in public_paths or not request.url.path.startswith("/api/"):
+            return await call_next(request)
+        if _request_token(request.headers) != api_token:
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "authentication required"},
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return await call_next(request)
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -252,6 +301,9 @@ def create_app(
 
     @app.websocket("/api/runs/{run_id}/live")
     async def live_view(websocket: WebSocket, run_id: str) -> None:
+        if api_token is not None and _websocket_token(websocket) != api_token:
+            await websocket.close(code=1008, reason="authentication required")
+            return
         run = repository.get(run_id)
         if run is None:
             await websocket.close(code=1008, reason="run not found")
@@ -288,6 +340,9 @@ def create_app(
 
     @app.websocket("/api/runs/{run_id}/vnc")
     async def vnc_view(websocket: WebSocket, run_id: str) -> None:
+        if api_token is not None and _websocket_token(websocket) != api_token:
+            await websocket.close(code=1008, reason="authentication required")
+            return
         if repository.get(run_id) is None:
             await websocket.close(code=1008, reason="run not found")
             return

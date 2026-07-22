@@ -66,6 +66,8 @@ You can still run checks manually:
 
 ```bash
 PYTHONPATH=backend .venv/bin/python -m unittest discover -s backend/tests -v
+./scripts/check_openapi.sh
+npm --prefix frontend run test
 ./scripts/run_acceptance.sh
 npm --prefix frontend run build
 ./scripts/run_quality_gate.sh
@@ -120,6 +122,9 @@ Planner and Executor entry points now accept local bind settings through
 `PLOVER_PLANNER_HOST`, `PLOVER_PLANNER_PORT`, `PLOVER_EXECUTOR_BIND`, and
 `PLOVER_EXECUTOR_PORT`. The Vite proxy reads `PLOVER_PLANNER_ORIGIN` when you
 need the frontend to point at a non-default Planner address.
+Set `PLOVER_API_TOKEN` to require bearer auth on Planner HTTP and websocket
+routes, and mirror the same value in `VITE_PLOVER_API_TOKEN` when building or
+running the frontend.
 
 Set `PLOVER_DATABASE_PATH=./data/plover.sqlite3` to persist Planner runs,
 proposals, screenshots, and timeline events across service restarts.

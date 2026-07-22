@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import RFB from "@novnc/novnc";
+import { websocketUrl } from "./config";
 
 export type VncConnectionState =
   | "connecting"
@@ -11,11 +12,6 @@ type VncViewerProps = {
   runId: string;
   onConnectionChange: (state: VncConnectionState) => void;
 };
-
-function websocketUrl(runId: string): string {
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.host}/api/runs/${runId}/vnc`;
-}
 
 export default function VncViewer({ runId, onConnectionChange }: VncViewerProps) {
   const targetRef = useRef<HTMLDivElement | null>(null);
@@ -43,7 +39,7 @@ export default function VncViewer({ runId, onConnectionChange }: VncViewerProps)
     setError(null);
     setCredentialTypes([]);
 
-    const rfb = new RFB(target, websocketUrl(runId), { shared: true });
+    const rfb = new RFB(target, websocketUrl("vnc", runId), { shared: true });
     rfbRef.current = rfb;
     rfb.background = "#16231f";
     rfb.scaleViewport = true;

@@ -1,6 +1,8 @@
 FROM node:20-alpine AS build
 
 WORKDIR /app
+ARG VITE_PLOVER_API_TOKEN=""
+ENV VITE_PLOVER_API_TOKEN=$VITE_PLOVER_API_TOKEN
 
 COPY package.json package-lock.json ./
 RUN npm ci

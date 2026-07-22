@@ -66,6 +66,25 @@ class ExecutorServiceTests(unittest.TestCase):
         with Image.open(BytesIO(response.screenshot_png)) as screenshot:
             self.assertEqual(screenshot.size, (1024, 768))
 
+    def test_execute_observe_actions_do_not_trigger_non_progress_failure(self) -> None:
+        service = ExecutorService(MockEnvironmentDriver(screenshot_bytes=_png(320, 200)))
+        request = executor_pb2.ExecuteRequest(
+            run_id="run-observe",
+            step_id="step-observe",
+            actions=[executor_pb2.Action(observe=executor_pb2.ObserveAction())],
+        )
+
+        responses = [service.Execute(request, None) for _ in range(3)]
+
+        self.assertTrue(all(response.ok for response in responses))
+        events = list(
+            service.WatchEvents(
+                executor_pb2.WatchEventsRequest(run_id="run-observe"),
+                None,
+            )
+        )
+        self.assertNotIn("failure_detected", [event.kind for event in events])
+
 
 if __name__ == "__main__":
     unittest.main()

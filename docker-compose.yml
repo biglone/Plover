@@ -37,6 +37,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
+      PLOVER_API_TOKEN: ${PLOVER_API_TOKEN:-}
       PLOVER_PLANNER_HOST: 0.0.0.0
       PLOVER_PLANNER_PORT: 8000
       PLOVER_EXECUTOR_TARGET: ${PLOVER_EXECUTOR_TARGET:-executor:50051}
@@ -85,6 +86,8 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        VITE_PLOVER_API_TOKEN: ${VITE_PLOVER_API_TOKEN:-${PLOVER_API_TOKEN:-}}
     restart: unless-stopped
     depends_on:
       planner:

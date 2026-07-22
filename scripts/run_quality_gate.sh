@@ -19,6 +19,12 @@ require_file "$PYTHON_BIN"
 echo "==> Backend unit and acceptance tests"
 PYTHONPATH=backend "$PYTHON_BIN" -m unittest discover -s backend/tests -v
 
+echo "==> Frontend unit tests"
+npm --prefix "$ROOT_DIR/frontend" run test
+
+echo "==> OpenAPI contract check"
+"$ROOT_DIR/scripts/check_openapi.sh"
+
 echo "==> Frontend production build"
 npm --prefix "$ROOT_DIR/frontend" run build
 

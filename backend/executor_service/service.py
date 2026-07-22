@@ -123,7 +123,11 @@ class ExecutorService(executor_pb2_grpc.ExecutorServicer):
 
             screenshot = self._capture_screenshot()
             self._record_event(request.run_id, request.step_id, "action_completed", summary)
-            detection = detector.observe(_canonical_action(action), screenshot_hash=_screenshot_hash(screenshot))
+            canonical_action = _canonical_action(action)
+            detection = None if canonical_action.kind == "observe" else detector.observe(
+                canonical_action,
+                screenshot_hash=_screenshot_hash(screenshot),
+            )
             if detection:
                 detail = f"Stuck after {detection.repeated_action}; screenshot distances={detection.screenshot_distances}"
                 self._record_event(request.run_id, request.step_id, "failure_detected", summary, detail)

@@ -75,6 +75,7 @@ env \
   PLOVER_PLANNER_HOST=127.0.0.1 \
   PLOVER_PLANNER_PORT="$PLANNER_PORT" \
   PLOVER_LOCAL_EXECUTOR_SCENARIO="$LOCAL_EXECUTOR_SCENARIO" \
+  PLOVER_API_TOKEN="${PLOVER_API_TOKEN:-}" \
   "$PYTHON_BIN" -m planner_service >"$LOG_DIR/planner.log" 2>&1 &
 PIDS+=("$!")
 wait_for_http "$PLANNER_URL/health" "Planner"
@@ -82,6 +83,7 @@ wait_for_http "$PLANNER_URL/health" "Planner"
 env \
   PLOVER_PLANNER_ORIGIN="$PLANNER_URL" \
   PLOVER_FRONTEND_PORT="$FRONTEND_PORT" \
+  VITE_PLOVER_API_TOKEN="${VITE_PLOVER_API_TOKEN:-${PLOVER_API_TOKEN:-}}" \
   "$NPM_BIN" --prefix "$ROOT_DIR/frontend" run dev -- --host 127.0.0.1 --port "$FRONTEND_PORT" \
   >"$LOG_DIR/frontend.log" 2>&1 &
 PIDS+=("$!")
